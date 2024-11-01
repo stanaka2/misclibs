@@ -1,0 +1,14 @@
+BasedOnStyle:  LLVM
+BreakBeforeBraces: Linux
+AlignEscapedNewlines: Left
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: true
+BinPackArguments: true
+BinPackParameters: true
+SpaceBeforeParens: Never
+PointerAlignment: Right
+SortIncludes: false
+IndentWidth: 2
+ColumnLimit: 120
