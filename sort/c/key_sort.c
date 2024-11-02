@@ -1,8 +1,8 @@
 #include <stdint.h>
 #include <omp.h>
 
-#define para_qsort_THRESHOLD (2000)
-// #define para_qsort_THRESHOLD (2)
+#define para_sort_THRESHOLD (2000)
+// #define para_sort_THRESHOLD (2)
 
 /* ### median ### */
 static inline int64_t median_i64(const int64_t a, const int64_t b, const int64_t c)
@@ -67,7 +67,7 @@ static void single_qsort_i64(int a[], int64_t key[], int left, int right)
 static void para_qsort_internal_i64(int a[], int64_t key[], int left, int right)
 {
   int length = right - left;
-  if(length < para_qsort_THRESHOLD) {
+  if(length < para_sort_THRESHOLD) {
     single_qsort_i64(a, key, left, right);
     return;
   }
@@ -103,7 +103,7 @@ static void para_qsort_i64(int a[], int64_t key[], int left, int right)
 #include <stdlib.h>
 
 #include <random>
-#include "../utils.hpp"
+#include "../../utils/utils.h"
 
 #if 1
 

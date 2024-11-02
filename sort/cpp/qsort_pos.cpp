@@ -6,8 +6,8 @@ struct target {
   double xpos, ypos, zpos;
 };
 
-#define para_qsort_THRESHOLD (5000)
-// #define para_qsort_THRESHOLD (2)
+#define para_sort_THRESHOLD (5000)
+// #define para_sort_THRESHOLD (2)
 
 /* ### median ### */
 template <typename T>
@@ -78,7 +78,7 @@ template <typename T, typename U>
 static void para_qsort_internal_axis(U p[], int left, int right, const int axis)
 {
   int length = right - left;
-  if(length < para_qsort_THRESHOLD) {
+  if(length < para_sort_THRESHOLD) {
     single_qsort_axis(p, left, right, axis);
     return;
   }
@@ -119,7 +119,7 @@ static void para_qsort_axis(U p[], int left, int right, const int axis)
 
 #include <vector>
 #include <random>
-#include "../utils.hpp"
+#include "../../utils/utils.hpp"
 
 int main(int argc, char **argv)
 {

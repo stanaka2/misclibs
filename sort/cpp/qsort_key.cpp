@@ -2,8 +2,8 @@
 #include <stdint.h>
 #include <omp.h>
 
-#define para_qsort_THRESHOLD (5000)
-// #define para_qsort_THRESHOLD (4)
+#define para_sort_THRESHOLD (5000)
+// #define para_sort_THRESHOLD (4)
 
 /* ### median ### */
 template <typename T>
@@ -53,7 +53,7 @@ template <typename T, typename U>
 static void para_qsort_internal_key(U a[], T key[], int left, int right)
 {
   int length = right - left;
-  if(length < para_qsort_THRESHOLD) {
+  if(length < para_sort_THRESHOLD) {
     single_qsort_key(a, key, left, right);
     return;
   }
@@ -90,7 +90,7 @@ static void para_qsort_key(U a[], T key[], int left, int right)
 #if 1
 #include <vector>
 #include <random>
-#include "../utils.hpp"
+#include "../../utils/utils.hpp"
 
 int main(int argc, char **argv)
 {
@@ -111,9 +111,8 @@ int main(int argc, char **argv)
   printVec(p, "Array p");
   printVec(d, "Array d");
 
-  // single_qsort_key(p, d, 0, p.size()-1);
+  // single_qsort_key(p.data(), d.data(), 0, p.size()-1);
   para_qsort_key(p.data(), d.data(), 0, p.size() - 1);
-  //  para_qsort_i64(p.data(), d.data(), 0, p.size()-1);
 
   std::cout << "After sorting:" << std::endl;
   printVec(p, "Array p");
