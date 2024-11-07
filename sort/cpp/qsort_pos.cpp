@@ -1,13 +1,37 @@
 #include <algorithm>
-#include <stdint.h>
+#include <type_traits>
+#include <cstdint>
 #include <omp.h>
 
-struct target {
+// support two type position member
+struct target_xyz {
+  int id;
   double xpos, ypos, zpos;
+};
+
+struct target_pos {
+  int id;
+  double pos[3];
 };
 
 #define para_sort_THRESHOLD (5000)
 // #define para_sort_THRESHOLD (2)
+
+template <typename T, typename = void>
+struct has_xpos : std::false_type {
+};
+
+template <typename T>
+struct has_xpos<T, std::void_t<decltype(std::declval<T>().xpos)>> : std::true_type {
+};
+
+template <typename T, typename = void>
+struct has_pos_array : std::false_type {
+};
+
+template <typename T>
+struct has_pos_array<T, std::void_t<decltype(std::declval<T>().pos[0])>> : std::true_type {
+};
 
 /* ### median ### */
 template <typename T>
@@ -23,20 +47,42 @@ static inline void qsort_partitioning_axis(T p[], int &left, int &right, double 
   int jj = right;
 
   /* partitioning */
-  if(axis == 0) {
-    while(1) {
-      while(p[ii].xpos < pivot) ii++;
-      while(pivot < p[jj].xpos) jj--;
-      if(ii >= jj) break;
-      std::swap(p[ii], p[jj]);
-      ii++;
-      jj--;
+  if constexpr(has_xpos<T>::value) {
+    if(axis == 0) {
+      while(1) {
+        while(p[ii].xpos < pivot) ii++;
+        while(pivot < p[jj].xpos) jj--;
+        if(ii >= jj) break;
+        std::swap(p[ii], p[jj]);
+        ii++;
+        jj--;
+      }
+
+    } else if(axis == 1) {
+      while(1) {
+        while(p[ii].ypos < pivot) ii++;
+        while(pivot < p[jj].ypos) jj--;
+        if(ii >= jj) break;
+        std::swap(p[ii], p[jj]);
+        ii++;
+        jj--;
+      }
+
+    } else {
+      while(1) {
+        while(p[ii].zpos < pivot) ii++;
+        while(pivot < p[jj].zpos) jj--;
+        if(ii >= jj) break;
+        std::swap(p[ii], p[jj]);
+        ii++;
+        jj--;
+      }
     }
 
-  } else if(axis == 1) {
+  } else if constexpr(has_pos_array<T>::value) {
     while(1) {
-      while(p[ii].ypos < pivot) ii++;
-      while(pivot < p[jj].ypos) jj--;
+      while(p[ii].pos[axis] < pivot) ii++;
+      while(pivot < p[jj].pos[axis]) jj--;
       if(ii >= jj) break;
       std::swap(p[ii], p[jj]);
       ii++;
@@ -44,14 +90,7 @@ static inline void qsort_partitioning_axis(T p[], int &left, int &right, double 
     }
 
   } else {
-    while(1) {
-      while(p[ii].zpos < pivot) ii++;
-      while(pivot < p[jj].zpos) jj--;
-      if(ii >= jj) break;
-      std::swap(p[ii], p[jj]);
-      ii++;
-      jj--;
-    }
+    static_assert(has_xpos<T>::value || has_pos_array<T>::value, "T must have either xpos/ypos/zpos or pos[3]");
   }
 
   left = ii;
@@ -64,9 +103,15 @@ static void single_qsort_axis(T p[], int left, int right, const int axis)
   if(left < right) {
     int ii = left, jj = right;
     double pivot;
-    if(axis == 0) pivot = median(p[ii].xpos, p[jj].xpos, p[(ii + jj) / 2].xpos);
-    else if(axis == 1) pivot = median(p[ii].ypos, p[jj].ypos, p[(ii + jj) / 2].ypos);
-    else pivot = median(p[ii].zpos, p[jj].zpos, p[(ii + jj) / 2].zpos);
+    if constexpr(has_xpos<T>::value) {
+      if(axis == 0) pivot = median(p[ii].xpos, p[jj].xpos, p[(ii + jj) / 2].xpos);
+      else if(axis == 1) pivot = median(p[ii].ypos, p[jj].ypos, p[(ii + jj) / 2].ypos);
+      else pivot = median(p[ii].zpos, p[jj].zpos, p[(ii + jj) / 2].zpos);
+    } else if constexpr(has_pos_array<T>::value) {
+      pivot = median(p[ii].pos[axis], p[jj].pos[axis], p[(ii + jj) / 2].pos[axis]);
+    } else {
+      static_assert(has_xpos<T>::value || has_pos_array<T>::value, "T must have either xpos/ypos/zpos or pos[3]");
+    }
 
     qsort_partitioning_axis(p, ii, jj, pivot, axis);
     single_qsort_axis(p, left, ii - 1, axis);
@@ -85,9 +130,15 @@ static void para_qsort_internal_axis(U p[], int left, int right, const int axis)
 
   int ii = left, jj = right;
   double pivot;
-  if(axis == 0) pivot = median(p[ii].xpos, p[jj].xpos, p[(ii + jj) / 2].xpos);
-  else if(axis == 1) pivot = median(p[ii].ypos, p[jj].ypos, p[(ii + jj) / 2].ypos);
-  else pivot = median(p[ii].zpos, p[jj].zpos, p[(ii + jj) / 2].zpos);
+  if constexpr(has_xpos<T>::value) {
+    if(axis == 0) pivot = median(p[ii].xpos, p[jj].xpos, p[(ii + jj) / 2].xpos);
+    else if(axis == 1) pivot = median(p[ii].ypos, p[jj].ypos, p[(ii + jj) / 2].ypos);
+    else pivot = median(p[ii].zpos, p[jj].zpos, p[(ii + jj) / 2].zpos);
+  } else if constexpr(has_pos_array<T>::value) {
+    pivot = median(p[ii].pos[axis], p[jj].pos[axis], p[(ii + jj) / 2].pos[axis]);
+  } else {
+    static_assert(has_xpos<T>::value || has_pos_array<T>::value, "T must have either xpos/ypos/zpos or pos[3]");
+  }
 
   qsort_partitioning_axis(p, ii, jj, pivot, axis);
 
@@ -125,12 +176,15 @@ int main(int argc, char **argv)
 {
   int axis = atol(argv[1]);
 
-  std::vector<target> targets(300);
+#if 1
+  std::vector<target_xyz> targets(300);
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_real_distribution<> dis(-1.0, 1.0);
 
+  int a = 0;
   for(auto &t : targets) {
+    t.id = a++;
     t.xpos = dis(gen);
     t.ypos = dis(gen);
     t.zpos = dis(gen);
@@ -138,7 +192,7 @@ int main(int argc, char **argv)
 
   for(int i = 0; i < targets.size(); i++) {
     auto &t = targets[i];
-    std::cout << i << " pos: " << t.xpos << ", " << t.ypos << ", " << t.zpos << std::endl;
+    std::cout << i << " " << t.id << " pos: " << t.xpos << ", " << t.ypos << ", " << t.zpos << std::endl;
   }
 
   single_qsort_axis(targets.data(), 0, targets.size() - 1, axis);
@@ -146,8 +200,38 @@ int main(int argc, char **argv)
   std::cout << "sorted" << std::endl;
   for(int i = 0; i < targets.size(); i++) {
     auto &t = targets[i];
-    std::cout << i << " pos: " << t.xpos << ", " << t.ypos << ", " << t.zpos << std::endl;
+    std::cout << i << " " << t.id << " pos: " << t.xpos << ", " << t.ypos << ", " << t.zpos << std::endl;
   }
+
+#else
+
+  std::vector<target_pos> targets(300);
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_real_distribution<> dis(-1.0, 1.0);
+
+  int a = 0;
+  for(auto &t : targets) {
+    t.id = a++;
+    t.pos[0] = dis(gen);
+    t.pos[1] = dis(gen);
+    t.pos[2] = dis(gen);
+  }
+
+  for(int i = 0; i < targets.size(); i++) {
+    auto &t = targets[i];
+    std::cout << i << " " << t.id << " pos: " << t.pos[0] << ", " << t.pos[1] << ", " << t.pos[2] << std::endl;
+  }
+
+  single_qsort_axis(targets.data(), 0, targets.size() - 1, axis);
+
+  std::cout << "sorted" << std::endl;
+  for(int i = 0; i < targets.size(); i++) {
+    auto &t = targets[i];
+    std::cout << i << " " << t.id << " pos: " << t.pos[0] << ", " << t.pos[1] << ", " << t.pos[2] << std::endl;
+  }
+
+#endif
 }
 
 #endif
