@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <stdint.h>
+#include <cstdint>
 #include <omp.h>
 
 #define para_sort_THRESHOLD (5000)
