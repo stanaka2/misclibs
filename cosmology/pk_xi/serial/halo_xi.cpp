@@ -8,7 +8,7 @@
 #include <omp.h>
 
 #include "load_halo.hpp"
-#include "corrfunc.hpp"
+#include "correlationfunc.hpp"
 
 const std::string suffix = ".h5";
 // const std::string suffix = ".hdf5";
@@ -16,7 +16,7 @@ const std::string suffix = ".h5";
 int main(int argc, char **argv)
 {
   if(argc < 4) {
-    std::cerr << "Usage:: " << argv[0] << " mvir_min mvax_min input_prefix" << std::endl;
+    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max input_prefix" << std::endl;
     // std::cerr << "rmin, rmax:: Mpc/h scale" << std::endl;
     std::cerr << "mvir_min, mvir_max:: log10 Msun/h scale" << std::endl;
     std::exit(EXIT_SUCCESS);
@@ -47,15 +47,19 @@ int main(int argc, char **argv)
 
   halos.load_halo_pm(pos, mvir, input_prefix, suffix);
 
+  bool log_bin = false;
+
   correlation cor;
-  cor.set_rbin(rmin, rmax, nr, lbox, true);
+  cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
   cor.mmin = mvir_min;
   cor.mmax = mvir_max;
 
 #if 1
   cor.set_halo_pm_group(pos, mvir);
   cor.calc_xi();
-  cor.output_xi("xi_halo.dat");
+  if(log_bin) cor.output_xi("xi_halo_log.dat");
+  else cor.output_xi("xi_halo_lin.dat");
+
 #elif 0
   cor.set_halo_pm_group(pos, mvir);
   cor.calc_xi_LS();
