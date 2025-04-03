@@ -12,7 +12,7 @@ const bool log_bin = false;
 int main(int argc, char **argv)
 {
   if(argc < 3) {
-    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh" << std::endl;
+    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh (output_filename)" << std::endl;
     std::exit(EXIT_SUCCESS);
   }
 
@@ -23,7 +23,14 @@ int main(int argc, char **argv)
   std::string input_prefix = std::string(argv[1]);
   int nmesh = std::atol(argv[2]);
 
+  std::string output_filename = "pk_matter.dat";
+  if(argc == 4) output_filename = std::string(argv[3]);
+
   std::cout << "# input prefix " << input_prefix << std::endl;
+  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# kmin, kmax, Nk " << kmin << ", " << kmax << ", " << nk << std::endl;
+  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
+  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
 
   load_ptcl<particle_pot_str> snap;
   snap.nmesh = nmesh;
@@ -66,14 +73,12 @@ int main(int argc, char **argv)
   std::vector<float> power_dens;
   std::vector<float> weight_dens;
   power.calc_power_spec(dens_mesh, power_dens, weight_dens);
-  if(log_bin) power.output_pk(power_dens, weight_dens, "pk_matter_log.dat");
-  else power.output_pk(power_dens, weight_dens, "pk_matter_lin.dat");
+  power.output_pk(power_dens, weight_dens, output_filename);
 #else
   std::vector<std::vector<float>> power_dens_ell;
   std::vector<float> weight_dens;
   power.calc_power_spec_ell(dens_mesh, power_dens_ell, weight_dens);
-  if(log_bin) power.output_pk_ell(power_dens_ell, weight_dens, "pk_matter_ell_log.dat");
-  else power.output_pk_ell(power_dens_ell, weight_dens, "pk_matter_ell_lin.dat");
+  power.output_pk_ell(power_dens_ell, weight_dens, output_filename);
 #endif
 
   std::exit(EXIT_SUCCESS);

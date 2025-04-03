@@ -16,12 +16,13 @@ const bool log_bin = false;
 int main(int argc, char **argv)
 {
   if(argc < 5) {
-    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh" << std::endl;
+    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh (output_filename)" << std::endl;
     std::cerr << "mvir_min, mvir_max:: log10 Msun/h scale (ex. 12.0 15.0)" << std::endl;
     std::cerr << "hdf5_halo_prefix:: HDF5 halo prefix. (ex. ./halo_props/S003/halos)" << std::endl;
     std::cerr << "nmesh:: FFT mesh of 1D (ex. 1024)" << std::endl;
+    std::cerr << "(output_filename):: opition. output filename" << std::endl;
     std::cerr << std::endl;
-    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1024" << std::endl;
+    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1024 output.dat" << std::endl;
     std::exit(EXIT_SUCCESS);
   }
 
@@ -38,8 +39,16 @@ int main(int argc, char **argv)
 
   int nmesh = std::atol(argv[4]);
 
+  std::string output_filename = "pk_halo.dat";
+  if(argc == 6) output_filename = std::string(argv[5]);
+
   std::cout << "# input prefix " << input_prefix << std::endl;
   std::cout << "# base file " << base_file << std::endl;
+  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
+  std::cout << "# kmin, kmax, Nk " << kmin << ", " << kmax << ", " << nk << std::endl;
+  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
+  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
 
   load_halos halos;
   halos.read_header(base_file);
@@ -95,14 +104,12 @@ halo_assign_mesh(pos, mvir, dens_mesh, nmesh, lbox, halos.scheme);
   std::vector<float> power_dens;
   std::vector<float> weight_dens;
   power.calc_power_spec(dens_mesh, power_dens, weight_dens);
-  if(log_bin) power.output_pk(power_dens, weight_dens, "pk_halo_log.dat");
-  else power.output_pk(power_dens, weight_dens, "pk_halo_lin.dat");
+  power.output_pk(power_dens, weight_dens, output_filename);
 #else
   std::vector<std::vector<float>> power_dens_ell;
   std::vector<float> weight_dens;
   power.calc_power_spec_ell(dens_mesh, power_dens_ell, weight_dens);
-  if(log_bin) power.output_pk_ell(power_dens_ell, weight_dens, "pk_halo_ell_log.dat");
-  else power.output_pk_ell(power_dens_ell, weight_dens, "pk_halo_ell_lin.dat");
+  power.output_pk_ell(power_dens_ell, weight_dens, output_filename);
 #endif
 
   std::exit(EXIT_SUCCESS);

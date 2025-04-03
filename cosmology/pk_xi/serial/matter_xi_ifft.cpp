@@ -12,7 +12,7 @@ const bool log_bin = false;
 int main(int argc, char **argv)
 {
   if(argc < 3) {
-    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh" << std::endl;
+    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh (output_filename)" << std::endl;
     std::exit(EXIT_SUCCESS);
   }
 
@@ -24,7 +24,14 @@ int main(int argc, char **argv)
   std::string input_prefix = std::string(argv[1]);
   int nmesh = std::atol(argv[2]);
 
+  std::string output_filename = "xi_matter_ifft.dat";
+  if(argc == 4) output_filename = std::string(argv[3]);
+
   std::cout << "# input prefix " << input_prefix << std::endl;
+  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
+  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
+  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
 
   load_ptcl<particle_pot_str> snap;
   snap.nmesh = nmesh;
@@ -64,9 +71,7 @@ int main(int argc, char **argv)
 
   std::vector<float> weight;
   cor.calc_xi_ifft(dens_mesh, weight);
-
-  if(log_bin) cor.output_xi_ifft("xi_matter_ifft_log.dat", weight);
-  else cor.output_xi_ifft("xi_matter_ifft_lin.dat", weight);
+  cor.output_xi_ifft(output_filename, weight);
 
   std::exit(EXIT_SUCCESS);
 }

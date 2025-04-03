@@ -30,8 +30,8 @@ public:
   double lin_dr, lin_dr2; // r, r^2 base
 
   /* radius of searching cell : (ndiv_1d+2)^3 */
-  int ndiv_1d = 1;
-  // int ndiv_1d = 2;
+  // int ndiv_1d = 1;
+  int ndiv_1d = 2;
 
   int jk_block=0;
 
@@ -68,16 +68,21 @@ public:
   void shuffle_halo_data(const int = 10);
 
   void calc_xi(const int = 1);
-  void calc_xi_LS(const int = 1);
-
   void calc_xi_direct();
-  void calc_xi_cell_list();
-  void calc_xi_LS_direct();
-  void calc_xi_LS_cell_list();
+  void calc_xi_clist();
 
-  void calc_xi_jk();
-  void calc_xi_jk_LS();
-  void resample_jackknife_LS();
+  void calc_xi_jk(const int = 1);
+  void resample_jk_direct();
+  void resample_jk_clist();
+
+  void calc_xi_LS(const int = 1);
+  void calc_xi_LS_direct();
+  void calc_xi_LS_clist();
+
+  void calc_xi_jk_LS(const int = 1);
+  void resample_jk_LS_direct();
+  void resample_jk_LS_clist();
+
   void calc_jk_xi_average();
   void calc_jk_xi_error();
 
@@ -255,13 +260,13 @@ void correlation::shuffle_halo_data(const int seed)
 void correlation::calc_xi(const int calc_type)
 {
   if(calc_type == 0) calc_xi_direct();
-  else if(calc_type == 1) calc_xi_cell_list();
+  else if(calc_type == 1) calc_xi_clist();
 }
 
 void correlation::calc_xi_LS(const int calc_type)
 {
   if(calc_type == 0) calc_xi_LS_direct();
-  else if(calc_type == 1) calc_xi_LS_cell_list();
+  else if(calc_type == 1) calc_xi_LS_clist();
 }
 
 void correlation::calc_xi_direct()
@@ -350,7 +355,7 @@ void correlation::calc_xi_direct()
   }
 }
 
-void correlation::calc_xi_cell_list()
+void correlation::calc_xi_clist()
 {
   /* Advice by chatgpt */
   ngrp = grp.size();
@@ -475,36 +480,6 @@ void correlation::calc_xi_cell_list()
   }
 }
 
-void correlation::calc_xi_jk()
-{
-
-  ngrp = grp.size();
-  nrand = ngrp;
-  jk_dd = ngrp / jk_block; // delete-d
-  nblock = (int)ceil(ngrp / jk_dd);
-
-  xi_jk.resize(nblock, std::vector<double>(nr));
-  xi_ave.resize(nr);
-  xi_sd.resize(nr);
-  xi_se.resize(nr);
-
-  dd_pair_jk.resize(nblock, std::vector<double>(nr));
-
-#pragma omp parallel for collapse(2)
-  for(int iblock = 0; iblock < nblock; iblock++) {
-    for(int ir = 0; ir < nr; ir++) {
-      dd_pair_jk[iblock][ir] = 0.0;
-      xi_jk[iblock][ir] = 0.0;
-    }
-  }
-
-  shuffle_halo_data();
-  set_random_group();
-  resample_jackknife_LS();
-  calc_jk_xi_average();
-  calc_jk_xi_error();
-}
-
 void correlation::calc_xi_LS_direct()
 {
   /* Landy SD, Szalay AS 1993, Apj */
@@ -564,7 +539,7 @@ void correlation::calc_xi_LS_direct()
         const double dr2 = dx * dx + dy * dy + dz * dz;
         const int ir = get_r2_index(dr2);
         if(ir < nr && ir >= 0) {
-          thr_rr_pair[ir] += 1.0;
+          thr_rr_pair[ir] += 1.0; // for j=i+1
         }
       }
 
@@ -603,7 +578,7 @@ void correlation::calc_xi_LS_direct()
         const double dr2 = dx * dx + dy * dy + dz * dz;
         const int ir = get_r2_index(dr2);
         if(ir < nr && ir >= 0) {
-          thr_dr_pair[ir] += 0.5;
+          thr_dr_pair[ir] += 0.5; // for j=0
         }
       }
 
@@ -641,7 +616,7 @@ void correlation::calc_xi_LS_direct()
         const double dr2 = dx * dx + dy * dy + dz * dz;
         const int ir = get_r2_index(dr2);
         if(ir < nr && ir >= 0) {
-          thr_dd_pair[ir] += 1.0;
+          thr_dd_pair[ir] += 1.0; // for j=i+1
         }
       }
 
@@ -674,7 +649,7 @@ void correlation::calc_xi_LS_direct()
   }
 }
 
-void correlation::calc_xi_LS_cell_list()
+void correlation::calc_xi_LS_clist()
 {
   /* Landy SD, Szalay AS 1993, Apj */
   /* Advice by chatgpt */
@@ -776,7 +751,7 @@ void correlation::calc_xi_LS_cell_list()
                     const double dr2 = dx * dx + dy * dy + dz * dz;
                     const int ir = get_r2_index(dr2);
                     if(ir >= 0 && ir < nr) {
-                      thr_rr_pair[ir] += 1.0;
+                      thr_rr_pair[ir] += 1.0; // for j=i+1
                     }
                   }
                 }
@@ -837,7 +812,7 @@ void correlation::calc_xi_LS_cell_list()
                     const double dr2 = dx * dx + dy * dy + dz * dz;
                     const int ir = get_r2_index(dr2);
                     if(ir >= 0 && ir < nr) {
-                      thr_dr_pair[ir] += 0.5;
+                      thr_dr_pair[ir] += 0.5; // for j=0
                     }
                   }
                 }
@@ -898,7 +873,7 @@ void correlation::calc_xi_LS_cell_list()
                     const double dr2 = dx * dx + dy * dy + dz * dz;
                     const int ir = get_r2_index(dr2);
                     if(ir >= 0 && ir < nr) {
-                      thr_dd_pair[ir] += 1.0;
+                      thr_dd_pair[ir] += 1.0; // for j=i+1
                     }
                   }
                 }
@@ -938,9 +913,39 @@ void correlation::calc_xi_LS_cell_list()
   }
 }
 
-void correlation::calc_xi_jk_LS()
+void correlation::calc_xi_jk(const int calc_type)
 {
 
+  ngrp = grp.size();
+  nrand = ngrp;
+  jk_dd = ngrp / jk_block; // delete-d
+  nblock = (int)ceil(ngrp / jk_dd);
+
+  xi_jk.resize(nblock, std::vector<double>(nr));
+  xi_ave.resize(nr);
+  xi_sd.resize(nr);
+  xi_se.resize(nr);
+
+  dd_pair_jk.resize(nblock, std::vector<double>(nr));
+
+#pragma omp parallel for collapse(2)
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    for(int ir = 0; ir < nr; ir++) {
+      dd_pair_jk[iblock][ir] = 0.0;
+      xi_jk[iblock][ir] = 0.0;
+    }
+  }
+
+  shuffle_halo_data();
+  set_random_group();
+  if(calc_type == 0) resample_jk_direct();
+  else if(calc_type == 1) resample_jk_clist();
+  calc_jk_xi_average();
+  calc_jk_xi_error();
+}
+
+void correlation::calc_xi_jk_LS(const int calc_type)
+{
   ngrp = grp.size();
   nrand = ngrp;
   jk_dd = ngrp / jk_block; // delete-d
@@ -967,16 +972,229 @@ void correlation::calc_xi_jk_LS()
 
   shuffle_halo_data();
   set_random_group();
-  resample_jackknife_LS();
+  if(calc_type == 0) resample_jk_LS_direct();
+  else if(calc_type == 1) resample_jk_LS_clist();
   calc_jk_xi_average();
   calc_jk_xi_error();
 }
 
-void correlation::resample_jackknife_LS()
+void correlation::resample_jk_direct()
 {
-  const double logrmin2 = log(rmin * rmin);
-  const double dlogbin2 = (2.e0 / (double)nr) * log(rmax / rmin);
+  int length = (ngrp - jk_dd) / (nblock - 1);
 
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    int delete_block_start = iblock * length;
+    int delete_block_end = delete_block_start + jk_dd;
+
+    std::cerr << "# iblock " << iblock << " " << length << " " << delete_block_start << " " << delete_block_end
+              << std::endl;
+
+#pragma omp parallel
+    {
+      std::vector<double> thr_dd_pair(nr, 0.0);
+
+      int nthread = omp_get_num_threads();
+      int ithread = omp_get_thread_num();
+      uint64_t progress = 0;
+      uint64_t progress_thread = ngrp / nthread;
+      uint64_t progress_div = 1 + progress_thread / 200;
+
+      if(ithread == 0)
+        std::cerr << "# ngrp, ngrp_thread = " << ngrp << ", " << progress_thread << " in " << nthread << " threads."
+                  << std::endl;
+
+// #pragma omp for schedule(auto) nowait
+#pragma omp for schedule(dynamic) nowait
+      for(uint64_t ii = 0; ii < ngrp; ii++) {
+        if((delete_block_start <= ii) && (ii < delete_block_end)) continue;
+
+        const double xi = grp[ii].xpos;
+        const double yi = grp[ii].ypos;
+        const double zi = grp[ii].zpos;
+
+        for(uint64_t jj = ii + 1; jj < ngrp; jj++) {
+          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
+
+          double dx = grp[jj].xpos - xi;
+          double dy = grp[jj].ypos - yi;
+          double dz = grp[jj].zpos - zi;
+          dx = (dx > 0.5 ? dx - 1.e0 : dx);
+          dy = (dy > 0.5 ? dy - 1.e0 : dy);
+          dz = (dz > 0.5 ? dz - 1.e0 : dz);
+          dx = (dx < -0.5 ? dx + 1.e0 : dx);
+          dy = (dy < -0.5 ? dy + 1.e0 : dy);
+          dz = (dz < -0.5 ? dz + 1.e0 : dz);
+
+          const double dr2 = dx * dx + dy * dy + dz * dz;
+          const int ir = get_r2_index(dr2);
+          if(ir >= 0 && ir < nr) {
+            // thr_dd_pair[ir] += 0.5; // for j=0
+            thr_dd_pair[ir] += 1.0; // for j=i+1
+          }
+        } // jj
+
+        if(ithread == 0) {
+          progress++;
+          if(progress % progress_div == 0) {
+            std::cerr << "\r\033[2K DD : [" << iblock << "/" << nblock
+                      << "] block : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+          }
+        }
+      } // ii
+
+      if(ithread == 0) std::cerr << std::endl;
+
+#pragma omp critical
+      {
+        for(int ir = 0; ir < nr; ir++) {
+          dd_pair_jk[iblock][ir] += thr_dd_pair[ir];
+        }
+      }
+    } // end parallel
+  } // end nblock loop
+
+  double V_box = 1.0;
+  double N_pairs = (double)(ngrp - jk_dd) * ((ngrp - jk_dd) - 1) / 2.0;
+  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
+
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    for(int ir = 0; ir < nr; ir++) {
+      double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
+      double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
+      double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
+      double norm = N_pairs * shell_volume / V_box;
+      xi_jk[iblock][ir] = dd_pair_jk[iblock][ir] / norm - 1.0;
+    }
+  }
+}
+
+void correlation::resample_jk_clist()
+{
+  /* Here only the global box size */
+  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int nc3 = ncx * ncy * ncz;
+
+  int length = (ngrp - jk_dd) / (nblock - 1);
+
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    int delete_block_start = iblock * length;
+    int delete_block_end = delete_block_start + jk_dd;
+
+    std::cerr << "# iblock " << iblock << " " << length << " " << delete_block_start << " " << delete_block_end
+              << std::endl;
+
+    std::vector<std::vector<int>> cell_list(nc3);
+
+    for(int64_t i = 0; i < ngrp; i++) {
+      if((delete_block_start <= i) && (i < delete_block_end)) continue;
+      const int ix = get_cell_index(grp[i].xpos, ncx);
+      const int iy = get_cell_index(grp[i].ypos, ncy);
+      const int iz = get_cell_index(grp[i].zpos, ncz);
+      const int cell_id = iz + ncz * (iy + ncy * ix);
+      cell_list[cell_id].push_back(i);
+    }
+
+#pragma omp parallel
+    {
+      std::vector<double> thr_dd_pair(nr, 0.0);
+
+      int nthread = omp_get_num_threads();
+      int ithread = omp_get_thread_num();
+      uint64_t progress = 0;
+      uint64_t progress_thread = nc3 / nthread;
+      uint64_t progress_div = 1 + progress_thread / 200;
+
+      if(ithread == 0)
+        std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+                  << std::endl;
+
+#pragma omp for collapse(3) schedule(dynamic)
+      for(int ix = 0; ix < ncx; ix++) {
+        for(int iy = 0; iy < ncy; iy++) {
+          for(int iz = 0; iz < ncz; iz++) {
+
+            const int cell_id = iz + ncz * (iy + ncy * ix);
+            const auto &clist = cell_list[cell_id];
+
+#pragma omp unroll
+            for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+              for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+                for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+                  const int nix = ((ix + jx) + ncx) % ncx;
+                  const int niy = ((iy + jy) + ncy) % ncy;
+                  const int niz = ((iz + jz) + ncz) % ncz;
+
+                  const int ncell_id = niz + ncz * (niy + ncy * nix);
+                  const auto &nlist = cell_list[ncell_id];
+
+                  for(int ii : clist) {
+                    for(int jj : nlist) {
+                      if(cell_id > ncell_id) continue;
+                      if(cell_id == ncell_id && ii >= jj) continue;
+
+                      double dx = grp[jj].xpos - grp[ii].xpos;
+                      double dy = grp[jj].ypos - grp[ii].ypos;
+                      double dz = grp[jj].zpos - grp[ii].zpos;
+
+                      dx = (dx > 0.5 ? dx - 1.e0 : dx);
+                      dy = (dy > 0.5 ? dy - 1.e0 : dy);
+                      dz = (dz > 0.5 ? dz - 1.e0 : dz);
+                      dx = (dx < -0.5 ? dx + 1.e0 : dx);
+                      dy = (dy < -0.5 ? dy + 1.e0 : dy);
+                      dz = (dz < -0.5 ? dz + 1.e0 : dz);
+
+                      const double dr2 = dx * dx + dy * dy + dz * dz;
+                      const int ir = get_r2_index(dr2);
+                      if(ir >= 0 && ir < nr) {
+                        thr_dd_pair[ir] += 1.0; // for j=i+1
+                      }
+                    }
+                  }
+                }
+              }
+            } // dx, dy, dz
+
+            if(ithread == 0) {
+              progress++;
+              if(progress % progress_div == 0) {
+                std::cerr << "\r\033[2K DD : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+              }
+            }
+          }
+        }
+      } // ix, iy, iz
+
+      if(ithread == 0) std::cerr << std::endl;
+
+#pragma omp critical
+      {
+        for(int ir = 0; ir < nr; ir++) {
+          dd_pair_jk[iblock][ir] += thr_dd_pair[ir];
+        }
+      }
+    } // end parallel
+  } // end nblock loop
+
+  double V_box = 1.0;
+  double N_pairs = (double)(ngrp - jk_dd) * ((ngrp - jk_dd) - 1) / 2.0;
+  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
+
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    for(int ir = 0; ir < nr; ir++) {
+      double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
+      double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
+      double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
+      double norm = N_pairs * shell_volume / V_box;
+      xi_jk[iblock][ir] = dd_pair_jk[iblock][ir] / norm - 1.0;
+    }
+  }
+}
+
+void correlation::resample_jk_LS_direct()
+{
   int length = (ngrp - jk_dd) / (nblock - 1);
 
   for(int iblock = 0; iblock < nblock; iblock++) {
@@ -1011,7 +1229,9 @@ void correlation::resample_jackknife_LS()
         const double yi = rand[ii].ypos;
         const double zi = rand[ii].zpos;
 
-        for(uint64_t jj = 0; jj < nrand; jj++) {
+        for(uint64_t jj = ii + 1; jj < nrand; jj++) {
+          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
+
           double dx = rand[jj].xpos - xi;
           double dy = rand[jj].ypos - yi;
           double dz = rand[jj].zpos - zi;
@@ -1021,11 +1241,12 @@ void correlation::resample_jackknife_LS()
           dx = (dx < -0.5 ? dx + 1.e0 : dx);
           dy = (dy < -0.5 ? dy + 1.e0 : dy);
           dz = (dz < -0.5 ? dz + 1.e0 : dz);
-          double dr2 = dx * dx + dy * dy + dz * dz;
-          const int ir = (int)floor((log(dr2) - logrmin2) / dlogbin2);
-          if(ir < nr && ir >= 0) {
-            // thr_rr_pair[ir]+=1.0;  // for jj = ii + 1
-            thr_rr_pair[ir] += 0.5; // for jj = 0
+
+          const double dr2 = dx * dx + dy * dy + dz * dz;
+          const int ir = get_r2_index(dr2);
+          if(ir >= 0 && ir < nr) {
+            // thr_rr_pair[ir] += 0.5; // for j=0
+            thr_rr_pair[ir] += 1.0; // for j=i+1
           }
         }
 
@@ -1051,6 +1272,8 @@ void correlation::resample_jackknife_LS()
         const double zi = grp[ii].zpos;
 
         for(uint64_t jj = 0; jj < nrand; jj++) {
+          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
+
           double dx = rand[jj].xpos - xi;
           double dy = rand[jj].ypos - yi;
           double dz = rand[jj].zpos - zi;
@@ -1060,10 +1283,11 @@ void correlation::resample_jackknife_LS()
           dx = (dx < -0.5 ? dx + 1.e0 : dx);
           dy = (dy < -0.5 ? dy + 1.e0 : dy);
           dz = (dz < -0.5 ? dz + 1.e0 : dz);
-          double dr2 = dx * dx + dy * dy + dz * dz;
-          int ir = (int)floor((log(dr2) - logrmin2) / dlogbin2);
-          if(ir < nr && ir >= 0) {
-            thr_dr_pair[ir] += 0.5;
+
+          const double dr2 = dx * dx + dy * dy + dz * dz;
+          const int ir = get_r2_index(dr2);
+          if(ir >= 0 && ir < nr) {
+            thr_dr_pair[ir] += 0.5; // for j=0
           }
         }
 
@@ -1088,7 +1312,9 @@ void correlation::resample_jackknife_LS()
         const double yi = grp[ii].ypos;
         const double zi = grp[ii].zpos;
 
-        for(uint64_t jj = 0; jj < ngrp; jj++) {
+        for(uint64_t jj = ii + 1; jj < ngrp; jj++) {
+          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
+
           double dx = grp[jj].xpos - xi;
           double dy = grp[jj].ypos - yi;
           double dz = grp[jj].zpos - zi;
@@ -1098,11 +1324,12 @@ void correlation::resample_jackknife_LS()
           dx = (dx < -0.5 ? dx + 1.e0 : dx);
           dy = (dy < -0.5 ? dy + 1.e0 : dy);
           dz = (dz < -0.5 ? dz + 1.e0 : dz);
-          double dr2 = dx * dx + dy * dy + dz * dz;
-          int ir = (int)floor((log(dr2) - logrmin2) / dlogbin2);
-          if(ir < nr && ir >= 0) {
-            // thr_dd_pair[ir]+=1.0; // for jj = ii + 1
-            thr_dd_pair[ir] += 0.5; // for jj = 0
+
+          const double dr2 = dx * dx + dy * dy + dz * dz;
+          const int ir = get_r2_index(dr2);
+          if(ir >= 0 && ir < nr) {
+            //  thr_dd_pair[ir] += 0.5; // for j=0
+            thr_dd_pair[ir] += 1.0; // for j=i+1
           }
         }
 
@@ -1114,6 +1341,265 @@ void correlation::resample_jackknife_LS()
           }
         }
       }
+
+      if(ithread == 0) std::cerr << std::endl;
+
+#pragma omp critical
+      {
+        for(int ir = 0; ir < nr; ir++) {
+          dd_pair_jk[iblock][ir] += thr_dd_pair[ir];
+          dr_pair_jk[iblock][ir] += thr_dr_pair[ir];
+          rr_pair_jk[iblock][ir] += thr_rr_pair[ir];
+        }
+      }
+    } // end parallel
+  } // end nblock loop
+
+  double f = (double)(nrand - jk_dd) / (double)(ngrp - jk_dd);
+  double f2 = f * f;
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    for(int ir = 0; ir < nr; ir++) {
+      if(rr_pair_jk[iblock][ir] != 0.0 && dr_pair_jk[iblock][ir] != 0.0) {
+        xi_jk[iblock][ir] = (dd_pair_jk[iblock][ir] * f2 - 2.0 * dr_pair_jk[iblock][ir] * f + rr_pair_jk[iblock][ir]) /
+                            rr_pair_jk[iblock][ir];
+      }
+    }
+  }
+}
+
+void correlation::resample_jk_LS_clist()
+{
+  /* Here only the global box size */
+  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int nc3 = ncx * ncy * ncz;
+
+  int length = (ngrp - jk_dd) / (nblock - 1);
+
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    int delete_block_start = iblock * length;
+    int delete_block_end = delete_block_start + jk_dd;
+
+    std::cerr << "# iblock " << iblock << " " << length << " " << delete_block_start << " " << delete_block_end
+              << std::endl;
+
+    std::vector<std::vector<int>> cell_list(nc3);
+    std::vector<std::vector<int>> cell_list_rand(nc3);
+
+    for(int64_t i = 0; i < ngrp; i++) {
+      if((delete_block_start <= i) && (i < delete_block_end)) continue;
+      const int ix = get_cell_index(grp[i].xpos, ncx);
+      const int iy = get_cell_index(grp[i].ypos, ncy);
+      const int iz = get_cell_index(grp[i].zpos, ncz);
+      const int cell_id = iz + ncz * (iy + ncy * ix);
+      cell_list[cell_id].push_back(i);
+    }
+
+    for(int i = 0; i < nrand; i++) {
+      const int ix = get_cell_index(rand[i].xpos, ncx);
+      const int iy = get_cell_index(rand[i].ypos, ncy);
+      const int iz = get_cell_index(rand[i].zpos, ncz);
+      const int cell_id = iz + ncz * (iy + ncy * ix);
+      if((delete_block_start <= i) && (i < delete_block_end)) continue;
+      cell_list_rand[cell_id].push_back(i);
+    }
+
+#pragma omp parallel
+    {
+      std::vector<double> thr_dd_pair(nr, 0.0);
+      std::vector<double> thr_rr_pair(nr, 0.0);
+      std::vector<double> thr_dr_pair(nr, 0.0);
+
+      int nthread = omp_get_num_threads();
+      int ithread = omp_get_thread_num();
+      uint64_t progress = 0;
+      uint64_t progress_thread = nc3 / nthread;
+      uint64_t progress_div = 1 + progress_thread / 200;
+
+      if(ithread == 0)
+        std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+                  << std::endl;
+
+      /* calc RR */
+#pragma omp for collapse(3) schedule(dynamic)
+      for(int ix = 0; ix < ncx; ix++) {
+        for(int iy = 0; iy < ncy; iy++) {
+          for(int iz = 0; iz < ncz; iz++) {
+
+            const int cell_id = iz + ncz * (iy + ncy * ix);
+            const auto &clist = cell_list_rand[cell_id];
+
+#pragma omp unroll
+            for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+              for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+                for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+                  const int nix = ((ix + jx) + ncx) % ncx;
+                  const int niy = ((iy + jy) + ncy) % ncy;
+                  const int niz = ((iz + jz) + ncz) % ncz;
+
+                  const int ncell_id = niz + ncz * (niy + ncy * nix);
+                  const auto &nlist = cell_list_rand[ncell_id];
+
+                  for(int ii : clist) {
+                    for(int jj : nlist) {
+                      if(cell_id > ncell_id) continue;
+                      if(cell_id == ncell_id && ii >= jj) continue;
+
+                      double dx = rand[jj].xpos - rand[ii].xpos;
+                      double dy = rand[jj].ypos - rand[ii].ypos;
+                      double dz = rand[jj].zpos - rand[ii].zpos;
+
+                      dx = (dx > 0.5 ? dx - 1.e0 : dx);
+                      dy = (dy > 0.5 ? dy - 1.e0 : dy);
+                      dz = (dz > 0.5 ? dz - 1.e0 : dz);
+                      dx = (dx < -0.5 ? dx + 1.e0 : dx);
+                      dy = (dy < -0.5 ? dy + 1.e0 : dy);
+                      dz = (dz < -0.5 ? dz + 1.e0 : dz);
+
+                      const double dr2 = dx * dx + dy * dy + dz * dz;
+                      const int ir = get_r2_index(dr2);
+                      if(ir >= 0 && ir < nr) {
+                        thr_rr_pair[ir] += 1.0; // for j=i+1
+                      }
+                    }
+                  }
+                }
+              }
+            } // dx, dy, dz
+
+            if(ithread == 0) {
+              progress++;
+              if(progress % progress_div == 0) {
+                std::cerr << "\r\033[2K DD : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+              }
+            }
+          }
+        }
+      } // ix, iy, iz
+
+      if(ithread == 0) std::cerr << std::endl;
+      progress = 0;
+
+/* calc DR */
+#pragma omp for collapse(3) schedule(dynamic)
+      for(int ix = 0; ix < ncx; ix++) {
+        for(int iy = 0; iy < ncy; iy++) {
+          for(int iz = 0; iz < ncz; iz++) {
+
+            const int cell_id = iz + ncz * (iy + ncy * ix);
+            const auto &clist = cell_list[cell_id];
+
+#pragma omp unroll
+            for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+              for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+                for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+                  const int nix = ((ix + jx) + ncx) % ncx;
+                  const int niy = ((iy + jy) + ncy) % ncy;
+                  const int niz = ((iz + jz) + ncz) % ncz;
+
+                  const int ncell_id = niz + ncz * (niy + ncy * nix);
+                  const auto &nlist = cell_list_rand[ncell_id];
+
+                  for(int ii : clist) {
+                    for(int jj : nlist) {
+                      // if(cell_id > ncell_id) continue;
+                      // if(cell_id == ncell_id && ii >= jj) continue;
+
+                      double dx = rand[jj].xpos - grp[ii].xpos;
+                      double dy = rand[jj].ypos - grp[ii].ypos;
+                      double dz = rand[jj].zpos - grp[ii].zpos;
+
+                      dx = (dx > 0.5 ? dx - 1.e0 : dx);
+                      dy = (dy > 0.5 ? dy - 1.e0 : dy);
+                      dz = (dz > 0.5 ? dz - 1.e0 : dz);
+                      dx = (dx < -0.5 ? dx + 1.e0 : dx);
+                      dy = (dy < -0.5 ? dy + 1.e0 : dy);
+                      dz = (dz < -0.5 ? dz + 1.e0 : dz);
+
+                      const double dr2 = dx * dx + dy * dy + dz * dz;
+                      const int ir = get_r2_index(dr2);
+                      if(ir >= 0 && ir < nr) {
+                        thr_dr_pair[ir] += 0.5; // for j=0
+                      }
+                    }
+                  }
+                }
+              }
+            } // dx, dy, dz
+
+            if(ithread == 0) {
+              progress++;
+              if(progress % progress_div == 0) {
+                std::cerr << "\r\033[2K DR : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+              }
+            }
+          }
+        }
+      } // ix, iy, iz
+
+      if(ithread == 0) std::cerr << std::endl;
+      progress = 0;
+
+      /* calc DD */
+#pragma omp for collapse(3) schedule(dynamic)
+      for(int ix = 0; ix < ncx; ix++) {
+        for(int iy = 0; iy < ncy; iy++) {
+          for(int iz = 0; iz < ncz; iz++) {
+
+            const int cell_id = iz + ncz * (iy + ncy * ix);
+            const auto &clist = cell_list[cell_id];
+
+#pragma omp unroll
+            for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+              for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+                for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+                  const int nix = ((ix + jx) + ncx) % ncx;
+                  const int niy = ((iy + jy) + ncy) % ncy;
+                  const int niz = ((iz + jz) + ncz) % ncz;
+
+                  const int ncell_id = niz + ncz * (niy + ncy * nix);
+                  const auto &nlist = cell_list[ncell_id];
+
+                  for(int ii : clist) {
+                    for(int jj : nlist) {
+                      if(cell_id > ncell_id) continue;
+                      if(cell_id == ncell_id && ii >= jj) continue;
+
+                      double dx = grp[jj].xpos - grp[ii].xpos;
+                      double dy = grp[jj].ypos - grp[ii].ypos;
+                      double dz = grp[jj].zpos - grp[ii].zpos;
+
+                      dx = (dx > 0.5 ? dx - 1.e0 : dx);
+                      dy = (dy > 0.5 ? dy - 1.e0 : dy);
+                      dz = (dz > 0.5 ? dz - 1.e0 : dz);
+                      dx = (dx < -0.5 ? dx + 1.e0 : dx);
+                      dy = (dy < -0.5 ? dy + 1.e0 : dy);
+                      dz = (dz < -0.5 ? dz + 1.e0 : dz);
+
+                      const double dr2 = dx * dx + dy * dy + dz * dz;
+                      const int ir = get_r2_index(dr2);
+                      if(ir >= 0 && ir < nr) {
+                        thr_dd_pair[ir] += 1.0; // for j=i+1
+                      }
+                    }
+                  }
+                }
+              }
+            } // dx, dy, dz
+
+            if(ithread == 0) {
+              progress++;
+              if(progress % progress_div == 0) {
+                std::cerr << "\r\033[2K DD : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+              }
+            }
+          }
+        }
+      } // ix, iy, iz
 
       if(ithread == 0) std::cerr << std::endl;
 
@@ -1212,7 +1698,7 @@ void correlation::calc_xi_ifft(T &mesh, T &weight)
       for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
         int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
 
-#if 0
+#if 1
         const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
         const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
         const float kz = (float)(iz);

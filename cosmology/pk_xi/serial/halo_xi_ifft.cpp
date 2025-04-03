@@ -18,12 +18,13 @@ const bool log_bin = false;
 int main(int argc, char **argv)
 {
   if(argc < 5) {
-    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh" << std::endl;
+    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh (output_filename)" << std::endl;
     std::cerr << "mvir_min, mvir_max:: log10 Msun/h scale (ex. 12.0 15.0)" << std::endl;
     std::cerr << "hdf5_halo_prefix:: HDF5 halo prefix. (ex. ./halo_props/S003/halos)" << std::endl;
     std::cerr << "nmesh:: FFT mesh of 1D (ex. 1024)" << std::endl;
+    std::cerr << "(output_filename):: opition. output filename" << std::endl;
     std::cerr << std::endl;
-    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1024" << std::endl;
+    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1024 output.dat" << std::endl;
     std::exit(EXIT_SUCCESS);
   }
 
@@ -40,8 +41,16 @@ int main(int argc, char **argv)
   std::string base_file = input_prefix + ".0" + suffix;
   int nmesh = std::atol(argv[4]);
 
+  std::string output_filename = "xi_halo_ifft.dat";
+  if(argc == 6) output_filename = std::string(argv[5]);
+
   std::cout << "# input prefix " << input_prefix << std::endl;
   std::cout << "# base file " << base_file << std::endl;
+  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
+  std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
+  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
+  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
 
   load_halos halos;
   halos.read_header(base_file);
@@ -84,9 +93,7 @@ int main(int argc, char **argv)
 
   std::vector<float> weight;
   cor.calc_xi_ifft(dens_mesh, weight);
-
-  if(log_bin) cor.output_xi_ifft("xi_halo_ifft_log.dat", weight);
-  else cor.output_xi_ifft("xi_halo_ifft_lin.dat", weight);
+  cor.output_xi_ifft(output_filename, weight);
 
   return EXIT_SUCCESS;
 }
