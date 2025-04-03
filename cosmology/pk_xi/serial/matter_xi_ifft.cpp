@@ -65,8 +65,8 @@ int main(int argc, char **argv)
   std::vector<float> weight;
   cor.calc_xi_ifft(dens_mesh, weight);
 
-  if(log_bin) cor.output_xi_ifft("pk_matter_ifft_log.dat", weight);
-  else cor.output_xi_ifft("pk_matter_ifft_lin.dat", weight);
+  if(log_bin) cor.output_xi_ifft("xi_matter_ifft_log.dat", weight);
+  else cor.output_xi_ifft("xi_matter_ifft_lin.dat", weight);
 
   std::exit(EXIT_SUCCESS);
 }
