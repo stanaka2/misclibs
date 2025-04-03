@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <vector>
+#include <random>
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
@@ -9,11 +10,6 @@
 #include <fftw3.h>
 #include "powerspec.hpp"
 #include "util.hpp"
-
-#define c_re(c) ((c)[0])
-#define c_im(c) ((c)[1])
-#define SQR(a) ((a) * (a))
-#define CUBE(a) ((a) * (a) * (a))
 
 struct group {
   float xpos, ypos, zpos;
@@ -34,11 +30,10 @@ public:
   double lin_dr, lin_dr2; // r, r^2 base
 
   /* radius of searching cell : (ndiv_1d+2)^3 */
-  const int ndiv_1d = 1;
-  // const int ndiv_1d = 2;
+  int ndiv_1d = 1;
+  // int ndiv_1d = 2;
 
-  const int jk_block = 8;
-  // const int jk_block = 32;
+  int jk_block=0;
 
   int nrand, ngrp;
   int jk_dd, nblock;
@@ -73,13 +68,14 @@ public:
   void shuffle_halo_data(const int = 10);
 
   void calc_xi(const int = 1);
-  void calc_xi_LS(const int = 0);
+  void calc_xi_LS(const int = 1);
 
   void calc_xi_direct();
   void calc_xi_cell_list();
   void calc_xi_LS_direct();
   void calc_xi_LS_cell_list();
 
+  void calc_xi_jk();
   void calc_xi_jk_LS();
   void resample_jackknife_LS();
   void calc_jk_xi_average();
@@ -88,6 +84,12 @@ public:
   void output_xi(std::string);
   void output_xi_LS(std::string);
   void output_xi_jk(std::string);
+
+  template <typename T>
+  void calc_xi_ifft(T &, T &);
+
+  template <typename T>
+  void output_xi_ifft(std::string, T &);
 };
 
 void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bool _log_scale)
@@ -400,6 +402,7 @@ void correlation::calc_xi_cell_list()
           const int cell_id = iz + ncz * (iy + ncy * ix);
           const auto &clist = cell_list[cell_id];
 
+#pragma omp unroll
           for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
             for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
               for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
@@ -470,6 +473,36 @@ void correlation::calc_xi_cell_list()
     double norm = N_pairs * shell_volume / V_box;
     xi[ir] = dd_pair[ir] / norm - 1.0;
   }
+}
+
+void correlation::calc_xi_jk()
+{
+
+  ngrp = grp.size();
+  nrand = ngrp;
+  jk_dd = ngrp / jk_block; // delete-d
+  nblock = (int)ceil(ngrp / jk_dd);
+
+  xi_jk.resize(nblock, std::vector<double>(nr));
+  xi_ave.resize(nr);
+  xi_sd.resize(nr);
+  xi_se.resize(nr);
+
+  dd_pair_jk.resize(nblock, std::vector<double>(nr));
+
+#pragma omp parallel for collapse(2)
+  for(int iblock = 0; iblock < nblock; iblock++) {
+    for(int ir = 0; ir < nr; ir++) {
+      dd_pair_jk[iblock][ir] = 0.0;
+      xi_jk[iblock][ir] = 0.0;
+    }
+  }
+
+  shuffle_halo_data();
+  set_random_group();
+  resample_jackknife_LS();
+  calc_jk_xi_average();
+  calc_jk_xi_error();
 }
 
 void correlation::calc_xi_LS_direct()
@@ -712,6 +745,7 @@ void correlation::calc_xi_LS_cell_list()
           const int cell_id = iz + ncz * (iy + ncy * ix);
           const auto &clist = cell_list_rand[cell_id];
 
+#pragma omp unroll
           for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
             for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
               for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
@@ -772,6 +806,7 @@ void correlation::calc_xi_LS_cell_list()
           const int cell_id = iz + ncz * (iy + ncy * ix);
           const auto &clist = cell_list[cell_id];
 
+#pragma omp unroll
           for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
             for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
               for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
@@ -832,6 +867,7 @@ void correlation::calc_xi_LS_cell_list()
           const int cell_id = iz + ncz * (iy + ncy * ix);
           const auto &clist = cell_list[cell_id];
 
+#pragma omp unroll
           for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
             for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
               for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
@@ -919,7 +955,7 @@ void correlation::calc_xi_jk_LS()
   dr_pair_jk.resize(nblock, std::vector<double>(nr));
   rr_pair_jk.resize(nblock, std::vector<double>(nr));
 
-#pragma omp parellel for collapse(2)
+#pragma omp parallel for collapse(2)
   for(int iblock = 0; iblock < nblock; iblock++) {
     for(int ir = 0; ir < nr; ir++) {
       dd_pair_jk[iblock][ir] = 0.0;
@@ -1146,6 +1182,115 @@ void correlation::calc_jk_xi_error()
   std::cerr << "# done " << __func__ << std::endl;
 }
 
+template <typename T>
+void correlation::calc_xi_ifft(T &mesh, T &weight)
+{
+  static_assert(!std::is_same<T, float>::value, "Only float is allowed");
+
+  check_p();
+
+  static bool fft_init = false;
+  if(fft_init == false) {
+    fftwf_init_threads();
+    fftwf_plan_with_nthreads(omp_get_max_threads());
+    fft_init = true;
+  }
+
+  xi.resize(nr, 0.0);
+  weight.resize(nr, 0);
+
+  /* fft */
+  fftwf_plan plan_forward =
+      fftwf_plan_dft_r2c_3d(nmesh, nmesh, nmesh, mesh.data(), (fftwf_complex *)mesh.data(), FFTW_ESTIMATE);
+  fftwf_execute(plan_forward);
+
+  fftwf_complex *mesh_hat = (fftwf_complex *)mesh.data();
+
+#pragma omp parallel for collapse(3)
+  for(uint64_t ix = 0; ix < nmesh; ix++) {
+    for(uint64_t iy = 0; iy < nmesh; iy++) {
+      for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
+        int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
+
+#if 0
+        const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
+        const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
+        const float kz = (float)(iz);
+
+        auto d = pi / nmesh;
+        auto wx = (ix == 0) ? 1.0 : (sin(d * kx) / (d * kx));
+        auto wy = (iy == 0) ? 1.0 : (sin(d * ky) / (d * ky));
+        auto wz = (iz == 0) ? 1.0 : (sin(d * kz) / (d * kz));
+
+        // p == 1 ; // for NGP weight w
+        if(p == 2) {
+          // for CIC weight w^2
+          wx *= wx;
+          wy *= wy;
+          wz *= wz;
+        } else if(p == 3) {
+          // for TSC weight w^3 ((w^3)^2 in Fourie space)
+          wx = (wx * wx * wx);
+          wy = (wy * wy * wy);
+          wz = (wz * wz * wz);
+        }
+
+        // for Fourie space
+        wx = wx * wx;
+        wy = wy * wy;
+        wz = wz * wz;
+
+        const auto win2 = (p == 0) ? 1.0 : wx * wy * wz;
+#else
+        const auto win2 = 1.0;
+#endif
+        auto power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
+        c_re(mesh_hat[im]) = power / win2;
+        c_im(mesh_hat[im]) = 0.0;
+      }
+    }
+  } // ix,iy,iz loop
+
+  /* ifft */
+  fftwf_plan plan_backward = fftwf_plan_dft_c2r_3d(nmesh, nmesh, nmesh, mesh_hat, mesh.data(), FFTW_ESTIMATE);
+  fftwf_execute(plan_backward);
+
+  const double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
+  const auto norm = 1.0 / pk_norm;
+#pragma omp parallel for
+  for(int64_t i = 0; i < mesh.size(); i++) {
+    mesh[i] *= norm;
+  }
+
+#pragma omp parallel for collapse(3) reduction(vec_double_plus : xi) reduction(vec_float_plus : weight)
+  for(uint64_t ix = 0; ix < nmesh; ix++) {
+    for(uint64_t iy = 0; iy < nmesh; iy++) {
+      for(uint64_t iz = 0; iz < nmesh; iz++) {
+
+        int64_t im = iz + (nmesh + 2) * (iy + nmesh * ix);
+        const float dx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
+        const float dy = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
+        const float dz = (iz < nmesh / 2) ? (float)(iz) : (float)(nmesh - iz);
+
+        float r = sqrt(dx * dx + dy * dy + dz * dz) / (float)(nmesh);
+        const int ir = get_r_index(r);
+
+        if(ir >= 0 && ir < nr) {
+          xi[ir] += mesh[im];
+          weight[ir]++;
+        }
+      }
+    }
+  } // ix, iy, iz loop
+
+#pragma omp parallel for
+  for(int ir = 0; ir < nr; ir++) {
+    if(weight[ir] > 0) {
+      xi[ir] /= weight[ir];
+    }
+  }
+}
+
 void correlation::output_xi(std::string filename)
 {
   std::ofstream fout(filename);
@@ -1194,3 +1339,19 @@ void correlation::output_xi_jk(std::string filename)
   fout.close();
   std::cout << "output to " << filename << std::endl;
 };
+
+template <typename T>
+void correlation::output_xi_ifft(std::string filename, T &weight)
+{
+  std::ofstream fout(filename);
+  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
+  fout << "# r[Mpc/h] xi weight" << std::endl;
+
+  for(int ir = 0; ir < nr; ir++) {
+    double rad = rcen[ir] * lbox;
+    fout << std::scientific << std::setprecision(10) << rad << " " << xi[ir] << " " << weight[ir] << "\n";
+  }
+  fout.flush();
+  fout.close();
+  std::cout << "output to " << filename << std::endl;
+}

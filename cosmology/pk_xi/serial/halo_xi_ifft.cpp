@@ -1,12 +1,14 @@
 #include <iostream>
+#include <iomanip>
 #include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
+#include <omp.h>
 
 #include "field.hpp"
 #include "load_halo.hpp"
-#include "powerspec.hpp"
+#include "correlationfunc.hpp"
 
 const std::string suffix = ".h5";
 // const std::string suffix = ".hdf5";
@@ -29,13 +31,13 @@ int main(int argc, char **argv)
   mvir_min = pow(10.0, atof(argv[1]));
   mvir_max = pow(10.0, atof(argv[2]));
 
-  double kmin = 1e-2;
-  double kmax = 50;
-  int nk = 250;
+  int nr = 100;
+  float rmin, rmax; // [Mpc/h]
+  rmin = 0.1;
+  rmax = 150.0;
 
   std::string input_prefix = std::string(argv[3]);
   std::string base_file = input_prefix + ".0" + suffix;
-
   int nmesh = std::atol(argv[4]);
 
   std::cout << "# input prefix " << input_prefix << std::endl;
@@ -46,6 +48,7 @@ int main(int argc, char **argv)
   halos.print_header();
   halos.scheme = 3;
 
+  double lbox(halos.box_size);
   std::vector<float> pos;
   std::vector<float> mvir;
 
@@ -53,57 +56,37 @@ int main(int argc, char **argv)
 
   int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
   int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
-  double lbox(halos.box_size);
 
   std::vector<float> dens_mesh(nfft_tot);
   std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
 
-#if 0
-/* halo mass density filed */
-halo_assign_mesh(pos, mvir, dens_mesh, nmesh, lbox, halos.scheme);
-
-#else
   /* halo number density filed */
   /* halo selection */
   std::vector<float> ones(mvir.size(), 0.0);
   for(size_t i = 0; i < mvir.size(); i++) {
     if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
   }
-
   halo_assign_mesh(pos, ones, dens_mesh, nmesh, lbox, halos.scheme);
 
   double dens_mean = 0.0;
-  for(int64_t i = 0; i < nfft_tot; i++) {
-    dens_mean += dens_mesh[i];
-  }
+  for(int64_t i = 0; i < nfft_tot; i++) dens_mean += dens_mesh[i];
   dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
+  for(int64_t i = 0; i < nfft_tot; i++) dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
 
-  for(int64_t i = 0; i < nfft_tot; i++) {
-    dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
-  }
-#endif
+  correlation cor;
+  cor.p = halos.scheme;
+  cor.lbox = lbox;
+  cor.nmesh = nmesh;
+  cor.mmin = mvir_min;
+  cor.mmax = mvir_max;
 
-  powerspec power;
-  power.p = halos.scheme;
-  power.lbox = lbox;
-  power.nmesh = nmesh;
+  cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
-  power.set_kbin(kmin, kmax, nk, log_bin);
-  //   power.check_kbin();
+  std::vector<float> weight;
+  cor.calc_xi_ifft(dens_mesh, weight);
 
-#if 1
-  std::vector<float> power_dens;
-  std::vector<float> weight_dens;
-  power.calc_power_spec(dens_mesh, power_dens, weight_dens);
-  if(log_bin) power.output_pk(power_dens, weight_dens, "pk_halo_log.dat");
-  else power.output_pk(power_dens, weight_dens, "pk_halo_lin.dat");
-#else
-  std::vector<std::vector<float>> power_dens_ell;
-  std::vector<float> weight_dens;
-  power.calc_power_spec_ell(dens_mesh, power_dens_ell, weight_dens);
-  if(log_bin) power.output_pk_ell(power_dens_ell, weight_dens, "pk_halo_ell_log.dat");
-  else power.output_pk_ell(power_dens_ell, weight_dens, "pk_halo_ell_lin.dat");
-#endif
+  if(log_bin) cor.output_xi_ifft("xi_halo_ifft_log.dat", weight);
+  else cor.output_xi_ifft("xi_halo_ifft_lin.dat", weight);
 
-  std::exit(EXIT_SUCCESS);
+  return EXIT_SUCCESS;
 }

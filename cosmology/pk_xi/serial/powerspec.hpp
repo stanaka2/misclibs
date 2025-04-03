@@ -189,6 +189,8 @@ void powerspec::output_pk_ell(TT &multipole_power, T &weight, std::string filena
 template <typename T>
 void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
 {
+  static_assert(!std::is_same<T, float>::value, "Only float is allowed");
+
   check_p();
 
   static bool fft_init = false;
@@ -272,6 +274,8 @@ void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
 template <typename T, typename TT>
 void powerspec::calc_power_spec_ell(T &mesh, TT &multipole_power, T &weight)
 {
+  static_assert(!std::is_same<T, float>::value, "Only float is allowed");
+
   check_p();
 
   static bool fft_init = false;
