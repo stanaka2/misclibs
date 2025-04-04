@@ -12,20 +12,19 @@
 const std::string suffix = ".h5";
 // const std::string suffix = ".hdf5";
 
-// constexpr int jk_block = 1;
-constexpr int jk_block = 8;
 constexpr bool log_bin = false;
 constexpr bool use_Landy_Szalay = false;
 
 int main(int argc, char **argv)
 {
-  if(argc < 4) {
-    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix (output_filename)" << std::endl;
+  if(argc < 5) {
+    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix jk_block (output_filename)" << std::endl;
     std::cerr << "mvir_min, mvir_max:: log10 Msun/h scale (ex. 12.0 15.0)" << std::endl;
     std::cerr << "hdf5_halo_prefix:: HDF5 halo prefix. (ex. ./halo_props/S003/halos)" << std::endl;
+    std::cerr << "jk_block:: level of jackknife block. block number is jk_block^3" << std::endl;
     std::cerr << "(output_filename):: opition. output filename" << std::endl;
     std::cerr << std::endl;
-    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos output.dat" << std::endl;
+    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1 output.dat" << std::endl;
     std::exit(EXIT_SUCCESS);
   }
 
@@ -41,8 +40,12 @@ int main(int argc, char **argv)
   std::string input_prefix = std::string(argv[3]);
   std::string base_file = input_prefix + ".0" + suffix;
 
+  int jk_level = std::atol(argv[4]);
+  if(jk_level < 1) jk_level = 1;
+  const int jk_block = jk_level * jk_level * jk_level;
+
   std::string output_filename = "xi_halo.dat";
-  if(argc == 5) output_filename = std::string(argv[4]);
+  if(argc == 6) output_filename = std::string(argv[5]);
 
   std::cout << "# input prefix " << input_prefix << std::endl;
   std::cout << "# base file " << base_file << std::endl;
@@ -50,7 +53,7 @@ int main(int argc, char **argv)
   std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
   std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
   std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
-  std::cout << "# jackknife " << jk_block << std::endl;
+  std::cout << "# jackknife block" << jk_block << std::endl;
   // std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
 
   load_halos halos;
@@ -80,7 +83,7 @@ int main(int argc, char **argv)
 
   cor.set_halo_pm_group(pos, mvir);
 
-  if constexpr(jk_block <= 1) {
+  if(jk_block <= 1) {
     if constexpr(use_Landy_Szalay) cor.calc_xi_LS();
     else cor.calc_xi();
     cor.output_xi(output_filename);

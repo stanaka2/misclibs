@@ -67,21 +67,12 @@ public:
   void set_random_group();
   void shuffle_halo_data(const int = 10);
 
-  void calc_xi(const int = 1);
-  void calc_xi_direct();
-  void calc_xi_clist();
-
-  void calc_xi_jk(const int = 1);
-  void resample_jk_direct();
-  void resample_jk_clist();
-
-  void calc_xi_LS(const int = 1);
-  void calc_xi_LS_direct();
-  void calc_xi_LS_clist();
-
-  void calc_xi_jk_LS(const int = 1);
-  void resample_jk_LS_direct();
-  void resample_jk_LS_clist();
+  void calc_xi();
+  void calc_xi_jk();
+  void calc_xi_LS();
+  void calc_xi_jk_LS();
+  void resample_jk();
+  void resample_jk_LS();
 
   void calc_jk_xi_average();
   void calc_jk_xi_error();
@@ -257,105 +248,7 @@ void correlation::shuffle_halo_data(const int seed)
   }
 }
 
-void correlation::calc_xi(const int calc_type)
-{
-  if(calc_type == 0) calc_xi_direct();
-  else if(calc_type == 1) calc_xi_clist();
-}
-
-void correlation::calc_xi_LS(const int calc_type)
-{
-  if(calc_type == 0) calc_xi_LS_direct();
-  else if(calc_type == 1) calc_xi_LS_clist();
-}
-
-void correlation::calc_xi_direct()
-{
-  ngrp = grp.size();
-  nrand = ngrp;
-
-  dd_pair.resize(nr);
-  xi.resize(nr);
-
-  for(int i = 0; i < nr; i++) {
-    dd_pair[i] = 0.0;
-    xi[i] = 0.0;
-  }
-
-#pragma omp parallel
-  {
-    std::vector<double> thr_dd_pair(nr, 0.0);
-
-    int nthread = omp_get_num_threads();
-    int ithread = omp_get_thread_num();
-    uint64_t progress = 0;
-    uint64_t progress_thread = ngrp / nthread;
-    uint64_t progress_div = 1 + progress_thread / 200;
-
-    if(ithread == 0)
-      std::cerr << "# ngrp, ngrp_thread = " << ngrp << ", " << progress_thread << " in " << nthread << " threads."
-                << std::endl;
-
-    /* calc DD */
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-    for(uint64_t i = 0; i < ngrp; i++) {
-      const double xi = grp[i].xpos;
-      const double yi = grp[i].ypos;
-      const double zi = grp[i].zpos;
-
-      for(uint64_t j = i + 1; j < ngrp; j++) {
-        double dx = grp[j].xpos - xi;
-        double dy = grp[j].ypos - yi;
-        double dz = grp[j].zpos - zi;
-
-        dx = (dx > 0.5 ? dx - 1.e0 : dx);
-        dy = (dy > 0.5 ? dy - 1.e0 : dy);
-        dz = (dz > 0.5 ? dz - 1.e0 : dz);
-        dx = (dx < -0.5 ? dx + 1.e0 : dx);
-        dy = (dy < -0.5 ? dy + 1.e0 : dy);
-        dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-        const double dr2 = dx * dx + dy * dy + dz * dz;
-        const int ir = get_r2_index(dr2);
-        if(ir < nr && ir >= 0) {
-          thr_dd_pair[ir] += 1.0;
-        }
-      }
-
-      if(ithread == 0) {
-        progress++;
-        if(progress % progress_div == 0) {
-          std::cerr << "\r\033[2K DD : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-        }
-      }
-    }
-
-    if(ithread == 0) std::cerr << std::endl;
-
-#pragma omp critical
-    {
-      for(int ir = 0; ir < nr; ir++) {
-        dd_pair[ir] += thr_dd_pair[ir];
-      }
-    } // omp critical
-  } // omp parallel
-
-  // double V_box = lbox * lbox * lbox;
-  double V_box = 1.0;
-  double N_pairs = (double)ngrp * (ngrp - 1) / 2.0;
-  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
-
-  for(int ir = 0; ir < nr; ir++) {
-    double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
-    double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
-    double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
-    double norm = N_pairs * shell_volume / V_box;
-    xi[ir] = dd_pair[ir] / norm - 1.0;
-  }
-}
-
-void correlation::calc_xi_clist()
+void correlation::calc_xi()
 {
   /* Advice by chatgpt */
   ngrp = grp.size();
@@ -480,176 +373,7 @@ void correlation::calc_xi_clist()
   }
 }
 
-void correlation::calc_xi_LS_direct()
-{
-  /* Landy SD, Szalay AS 1993, Apj */
-  ngrp = grp.size();
-  nrand = ngrp;
-
-  dd_pair.resize(nr);
-  dr_pair.resize(nr);
-  rr_pair.resize(nr);
-  xi.resize(nr);
-
-  for(int i = 0; i < nr; i++) {
-    rr_pair[i] = 0.0;
-    dd_pair[i] = 0.0;
-    dr_pair[i] = 0.0;
-    xi[i] = 0.0;
-  }
-
-  set_random_group();
-
-#pragma omp parallel
-  {
-    std::vector<double> thr_dd_pair(nr, 0.0);
-    std::vector<double> thr_rr_pair(nr, 0.0);
-    std::vector<double> thr_dr_pair(nr, 0.0);
-
-    int nthread = omp_get_num_threads();
-    int ithread = omp_get_thread_num();
-    uint64_t progress = 0;
-    uint64_t progress_thread = ngrp / nthread;
-    uint64_t progress_div = 1 + progress_thread / 200;
-
-    if(ithread == 0)
-      std::cerr << "# ngrp, ngrp_thread = " << ngrp << ", " << progress_thread << " in " << nthread << " threads."
-                << std::endl;
-
-    /* calc RR */
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-    for(uint64_t i = 0; i < nrand; i++) {
-      const double xi = rand[i].xpos;
-      const double yi = rand[i].ypos;
-      const double zi = rand[i].zpos;
-
-      for(uint64_t j = i + 1; j < nrand; j++) {
-        double dx = rand[j].xpos - xi;
-        double dy = rand[j].ypos - yi;
-        double dz = rand[j].zpos - zi;
-
-        dx = (dx > 0.5 ? dx - 1.e0 : dx);
-        dy = (dy > 0.5 ? dy - 1.e0 : dy);
-        dz = (dz > 0.5 ? dz - 1.e0 : dz);
-        dx = (dx < -0.5 ? dx + 1.e0 : dx);
-        dy = (dy < -0.5 ? dy + 1.e0 : dy);
-        dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-        const double dr2 = dx * dx + dy * dy + dz * dz;
-        const int ir = get_r2_index(dr2);
-        if(ir < nr && ir >= 0) {
-          thr_rr_pair[ir] += 1.0; // for j=i+1
-        }
-      }
-
-      if(ithread == 0) {
-        progress++;
-        if(progress % progress_div == 0) {
-          // std::cerr << "RR : " << (double)100.0 * progress / (double)progress_thread << " [%]" << "\n";
-          std::cerr << "\r\033[2K RR : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-        }
-      }
-    }
-
-    if(ithread == 0) std::cerr << std::endl;
-    progress = 0;
-
-    /* calc DR */
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-    for(uint64_t i = 0; i < ngrp; i++) {
-      const double xi = grp[i].xpos;
-      const double yi = grp[i].ypos;
-      const double zi = grp[i].zpos;
-
-      for(int j = 0; j < nrand; j++) {
-        double dx = rand[j].xpos - xi;
-        double dy = rand[j].ypos - yi;
-        double dz = rand[j].zpos - zi;
-
-        dx = (dx > 0.5 ? dx - 1.e0 : dx);
-        dy = (dy > 0.5 ? dy - 1.e0 : dy);
-        dz = (dz > 0.5 ? dz - 1.e0 : dz);
-        dx = (dx < -0.5 ? dx + 1.e0 : dx);
-        dy = (dy < -0.5 ? dy + 1.e0 : dy);
-        dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-        const double dr2 = dx * dx + dy * dy + dz * dz;
-        const int ir = get_r2_index(dr2);
-        if(ir < nr && ir >= 0) {
-          thr_dr_pair[ir] += 0.5; // for j=0
-        }
-      }
-
-      if(ithread == 0) {
-        progress++;
-        if(progress % progress_div == 0) {
-          std::cerr << "\r\033[2K DR : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-        }
-      }
-    }
-
-    if(ithread == 0) std::cerr << std::endl;
-    progress = 0;
-
-    /* calc DD */
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-    for(uint64_t i = 0; i < ngrp; i++) {
-      const double xi = grp[i].xpos;
-      const double yi = grp[i].ypos;
-      const double zi = grp[i].zpos;
-
-      for(uint64_t j = i + 1; j < ngrp; j++) {
-        double dx = grp[j].xpos - xi;
-        double dy = grp[j].ypos - yi;
-        double dz = grp[j].zpos - zi;
-
-        dx = (dx > 0.5 ? dx - 1.e0 : dx);
-        dy = (dy > 0.5 ? dy - 1.e0 : dy);
-        dz = (dz > 0.5 ? dz - 1.e0 : dz);
-        dx = (dx < -0.5 ? dx + 1.e0 : dx);
-        dy = (dy < -0.5 ? dy + 1.e0 : dy);
-        dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-        const double dr2 = dx * dx + dy * dy + dz * dz;
-        const int ir = get_r2_index(dr2);
-        if(ir < nr && ir >= 0) {
-          thr_dd_pair[ir] += 1.0; // for j=i+1
-        }
-      }
-
-      if(ithread == 0) {
-        progress++;
-        if(progress % progress_div == 0) {
-          std::cerr << "\r\033[2K DD : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-        }
-      }
-    }
-
-    if(ithread == 0) std::cerr << std::endl;
-
-#pragma omp critical
-    {
-      for(int ir = 0; ir < nr; ir++) {
-        rr_pair[ir] += thr_rr_pair[ir];
-        dd_pair[ir] += thr_dd_pair[ir];
-        dr_pair[ir] += thr_dr_pair[ir];
-      }
-    } // omp critical
-  } // omp parallel
-
-  double f = (double)nrand / (double)ngrp;
-  double f2 = f * f;
-  for(int ir = 0; ir < nr; ir++) {
-    if(rr_pair[ir] != 0.0 && dr_pair[ir] != 0.0) {
-      xi[ir] = (dd_pair[ir] * f2 - 2.0 * dr_pair[ir] * f + rr_pair[ir]) / rr_pair[ir];
-    }
-  }
-}
-
-void correlation::calc_xi_LS_clist()
+void correlation::calc_xi_LS()
 {
   /* Landy SD, Szalay AS 1993, Apj */
   /* Advice by chatgpt */
@@ -913,7 +637,7 @@ void correlation::calc_xi_LS_clist()
   }
 }
 
-void correlation::calc_xi_jk(const int calc_type)
+void correlation::calc_xi_jk()
 {
 
   ngrp = grp.size();
@@ -938,13 +662,12 @@ void correlation::calc_xi_jk(const int calc_type)
 
   shuffle_halo_data();
   set_random_group();
-  if(calc_type == 0) resample_jk_direct();
-  else if(calc_type == 1) resample_jk_clist();
+  resample_jk();
   calc_jk_xi_average();
   calc_jk_xi_error();
 }
 
-void correlation::calc_xi_jk_LS(const int calc_type)
+void correlation::calc_xi_jk_LS()
 {
   ngrp = grp.size();
   nrand = ngrp;
@@ -972,103 +695,12 @@ void correlation::calc_xi_jk_LS(const int calc_type)
 
   shuffle_halo_data();
   set_random_group();
-  if(calc_type == 0) resample_jk_LS_direct();
-  else if(calc_type == 1) resample_jk_LS_clist();
+  resample_jk_LS();
   calc_jk_xi_average();
   calc_jk_xi_error();
 }
 
-void correlation::resample_jk_direct()
-{
-  int length = (ngrp - jk_dd) / (nblock - 1);
-
-  for(int iblock = 0; iblock < nblock; iblock++) {
-    int delete_block_start = iblock * length;
-    int delete_block_end = delete_block_start + jk_dd;
-
-    std::cerr << "# iblock " << iblock << " " << length << " " << delete_block_start << " " << delete_block_end
-              << std::endl;
-
-#pragma omp parallel
-    {
-      std::vector<double> thr_dd_pair(nr, 0.0);
-
-      int nthread = omp_get_num_threads();
-      int ithread = omp_get_thread_num();
-      uint64_t progress = 0;
-      uint64_t progress_thread = ngrp / nthread;
-      uint64_t progress_div = 1 + progress_thread / 200;
-
-      if(ithread == 0)
-        std::cerr << "# ngrp, ngrp_thread = " << ngrp << ", " << progress_thread << " in " << nthread << " threads."
-                  << std::endl;
-
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-      for(uint64_t ii = 0; ii < ngrp; ii++) {
-        if((delete_block_start <= ii) && (ii < delete_block_end)) continue;
-
-        const double xi = grp[ii].xpos;
-        const double yi = grp[ii].ypos;
-        const double zi = grp[ii].zpos;
-
-        for(uint64_t jj = ii + 1; jj < ngrp; jj++) {
-          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
-
-          double dx = grp[jj].xpos - xi;
-          double dy = grp[jj].ypos - yi;
-          double dz = grp[jj].zpos - zi;
-          dx = (dx > 0.5 ? dx - 1.e0 : dx);
-          dy = (dy > 0.5 ? dy - 1.e0 : dy);
-          dz = (dz > 0.5 ? dz - 1.e0 : dz);
-          dx = (dx < -0.5 ? dx + 1.e0 : dx);
-          dy = (dy < -0.5 ? dy + 1.e0 : dy);
-          dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-          const double dr2 = dx * dx + dy * dy + dz * dz;
-          const int ir = get_r2_index(dr2);
-          if(ir >= 0 && ir < nr) {
-            // thr_dd_pair[ir] += 0.5; // for j=0
-            thr_dd_pair[ir] += 1.0; // for j=i+1
-          }
-        } // jj
-
-        if(ithread == 0) {
-          progress++;
-          if(progress % progress_div == 0) {
-            std::cerr << "\r\033[2K DD : [" << iblock << "/" << nblock
-                      << "] block : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-          }
-        }
-      } // ii
-
-      if(ithread == 0) std::cerr << std::endl;
-
-#pragma omp critical
-      {
-        for(int ir = 0; ir < nr; ir++) {
-          dd_pair_jk[iblock][ir] += thr_dd_pair[ir];
-        }
-      }
-    } // end parallel
-  } // end nblock loop
-
-  double V_box = 1.0;
-  double N_pairs = (double)(ngrp - jk_dd) * ((ngrp - jk_dd) - 1) / 2.0;
-  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
-
-  for(int iblock = 0; iblock < nblock; iblock++) {
-    for(int ir = 0; ir < nr; ir++) {
-      double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
-      double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
-      double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
-      double norm = N_pairs * shell_volume / V_box;
-      xi_jk[iblock][ir] = dd_pair_jk[iblock][ir] / norm - 1.0;
-    }
-  }
-}
-
-void correlation::resample_jk_clist()
+void correlation::resample_jk()
 {
   /* Here only the global box size */
   const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
@@ -1193,181 +825,7 @@ void correlation::resample_jk_clist()
   }
 }
 
-void correlation::resample_jk_LS_direct()
-{
-  int length = (ngrp - jk_dd) / (nblock - 1);
-
-  for(int iblock = 0; iblock < nblock; iblock++) {
-    int delete_block_start = iblock * length;
-    int delete_block_end = delete_block_start + jk_dd;
-
-    std::cerr << "# iblock " << iblock << " " << length << " " << delete_block_start << " " << delete_block_end
-              << std::endl;
-
-#pragma omp parallel
-    {
-      std::vector<double> thr_dd_pair(nr, 0.0);
-      std::vector<double> thr_rr_pair(nr, 0.0);
-      std::vector<double> thr_dr_pair(nr, 0.0);
-
-      int nthread = omp_get_num_threads();
-      int ithread = omp_get_thread_num();
-      uint64_t progress = 0;
-      uint64_t progress_thread = ngrp / nthread;
-      uint64_t progress_div = 1 + progress_thread / 200;
-
-      if(ithread == 0)
-        std::cerr << "# ngrp, ngrp_thread = " << ngrp << ", " << progress_thread << " in " << nthread << " threads."
-                  << std::endl;
-
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-      for(uint64_t ii = 0; ii < nrand; ii++) {
-        if((delete_block_start <= ii) && (ii < delete_block_end)) continue;
-
-        const double xi = rand[ii].xpos;
-        const double yi = rand[ii].ypos;
-        const double zi = rand[ii].zpos;
-
-        for(uint64_t jj = ii + 1; jj < nrand; jj++) {
-          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
-
-          double dx = rand[jj].xpos - xi;
-          double dy = rand[jj].ypos - yi;
-          double dz = rand[jj].zpos - zi;
-          dx = (dx > 0.5 ? dx - 1.e0 : dx);
-          dy = (dy > 0.5 ? dy - 1.e0 : dy);
-          dz = (dz > 0.5 ? dz - 1.e0 : dz);
-          dx = (dx < -0.5 ? dx + 1.e0 : dx);
-          dy = (dy < -0.5 ? dy + 1.e0 : dy);
-          dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-          const double dr2 = dx * dx + dy * dy + dz * dz;
-          const int ir = get_r2_index(dr2);
-          if(ir >= 0 && ir < nr) {
-            // thr_rr_pair[ir] += 0.5; // for j=0
-            thr_rr_pair[ir] += 1.0; // for j=i+1
-          }
-        }
-
-        if(ithread == 0) {
-          progress++;
-          if(progress % progress_div == 0) {
-            std::cerr << "\r\033[2K RR : [" << iblock << "/" << nblock
-                      << "] block : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-          }
-        }
-      }
-
-      if(ithread == 0) std::cerr << std::endl;
-      progress = 0;
-
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-      for(uint64_t ii = 0; ii < ngrp; ii++) {
-        if((delete_block_start <= ii) && (ii < delete_block_end)) continue;
-
-        const double xi = grp[ii].xpos;
-        const double yi = grp[ii].ypos;
-        const double zi = grp[ii].zpos;
-
-        for(uint64_t jj = 0; jj < nrand; jj++) {
-          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
-
-          double dx = rand[jj].xpos - xi;
-          double dy = rand[jj].ypos - yi;
-          double dz = rand[jj].zpos - zi;
-          dx = (dx > 0.5 ? dx - 1.e0 : dx);
-          dy = (dy > 0.5 ? dy - 1.e0 : dy);
-          dz = (dz > 0.5 ? dz - 1.e0 : dz);
-          dx = (dx < -0.5 ? dx + 1.e0 : dx);
-          dy = (dy < -0.5 ? dy + 1.e0 : dy);
-          dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-          const double dr2 = dx * dx + dy * dy + dz * dz;
-          const int ir = get_r2_index(dr2);
-          if(ir >= 0 && ir < nr) {
-            thr_dr_pair[ir] += 0.5; // for j=0
-          }
-        }
-
-        if(ithread == 0) {
-          progress++;
-          if(progress % progress_div == 0) {
-            std::cerr << "\r\033[2K DR : [" << iblock << "/" << nblock
-                      << "] block : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-          }
-        }
-      }
-
-      if(ithread == 0) std::cerr << std::endl;
-      progress = 0;
-
-// #pragma omp for schedule(auto) nowait
-#pragma omp for schedule(dynamic) nowait
-      for(uint64_t ii = 0; ii < ngrp; ii++) {
-        if((delete_block_start <= ii) && (ii < delete_block_end)) continue;
-
-        const double xi = grp[ii].xpos;
-        const double yi = grp[ii].ypos;
-        const double zi = grp[ii].zpos;
-
-        for(uint64_t jj = ii + 1; jj < ngrp; jj++) {
-          if((delete_block_start <= jj) && (jj < delete_block_end)) continue;
-
-          double dx = grp[jj].xpos - xi;
-          double dy = grp[jj].ypos - yi;
-          double dz = grp[jj].zpos - zi;
-          dx = (dx > 0.5 ? dx - 1.e0 : dx);
-          dy = (dy > 0.5 ? dy - 1.e0 : dy);
-          dz = (dz > 0.5 ? dz - 1.e0 : dz);
-          dx = (dx < -0.5 ? dx + 1.e0 : dx);
-          dy = (dy < -0.5 ? dy + 1.e0 : dy);
-          dz = (dz < -0.5 ? dz + 1.e0 : dz);
-
-          const double dr2 = dx * dx + dy * dy + dz * dz;
-          const int ir = get_r2_index(dr2);
-          if(ir >= 0 && ir < nr) {
-            //  thr_dd_pair[ir] += 0.5; // for j=0
-            thr_dd_pair[ir] += 1.0; // for j=i+1
-          }
-        }
-
-        if(ithread == 0) {
-          progress++;
-          if(progress % progress_div == 0) {
-            std::cerr << "\r\033[2K DD : [" << iblock << "/" << nblock
-                      << "] block : " << (double)100.0 * progress / (double)progress_thread << " [%]";
-          }
-        }
-      }
-
-      if(ithread == 0) std::cerr << std::endl;
-
-#pragma omp critical
-      {
-        for(int ir = 0; ir < nr; ir++) {
-          dd_pair_jk[iblock][ir] += thr_dd_pair[ir];
-          dr_pair_jk[iblock][ir] += thr_dr_pair[ir];
-          rr_pair_jk[iblock][ir] += thr_rr_pair[ir];
-        }
-      }
-    } // end parallel
-  } // end nblock loop
-
-  double f = (double)(nrand - jk_dd) / (double)(ngrp - jk_dd);
-  double f2 = f * f;
-  for(int iblock = 0; iblock < nblock; iblock++) {
-    for(int ir = 0; ir < nr; ir++) {
-      if(rr_pair_jk[iblock][ir] != 0.0 && dr_pair_jk[iblock][ir] != 0.0) {
-        xi_jk[iblock][ir] = (dd_pair_jk[iblock][ir] * f2 - 2.0 * dr_pair_jk[iblock][ir] * f + rr_pair_jk[iblock][ir]) /
-                            rr_pair_jk[iblock][ir];
-      }
-    }
-  }
-}
-
-void correlation::resample_jk_LS_clist()
+void correlation::resample_jk_LS()
 {
   /* Here only the global box size */
   const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
