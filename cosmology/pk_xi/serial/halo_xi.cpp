@@ -80,18 +80,18 @@ int main(int argc, char **argv)
   cor.mmin = mvir_min;
   cor.mmax = mvir_max;
   cor.jk_block = jk_block;
+  cor.jk_level = jk_level;
 
   cor.set_halo_pm_group(pos, mvir);
 
   if(jk_block <= 1) {
     if constexpr(use_Landy_Szalay) cor.calc_xi_LS();
     else cor.calc_xi();
-    cor.output_xi(output_filename);
   } else {
     if constexpr(use_Landy_Szalay) cor.calc_xi_jk_LS();
-    else cor.calc_xi_jk();
-    cor.output_xi_jk(output_filename);
+    else cor.calc_xi_jk(1);
   }
+  cor.output_xi(output_filename);
 
   return EXIT_SUCCESS;
 }

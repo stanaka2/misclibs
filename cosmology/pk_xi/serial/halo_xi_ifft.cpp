@@ -17,11 +17,13 @@ const bool log_bin = false;
 
 int main(int argc, char **argv)
 {
-  if(argc < 5) {
-    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh (output_filename)" << std::endl;
+  if(argc < 6) {
+    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh jk_block (output_filename)"
+              << std::endl;
     std::cerr << "mvir_min, mvir_max:: log10 Msun/h scale (ex. 12.0 15.0)" << std::endl;
     std::cerr << "hdf5_halo_prefix:: HDF5 halo prefix. (ex. ./halo_props/S003/halos)" << std::endl;
     std::cerr << "nmesh:: FFT mesh of 1D (ex. 1024)" << std::endl;
+    std::cerr << "jk_block:: level of jackknife block. block number is jk_block^3" << std::endl;
     std::cerr << "(output_filename):: opition. output filename" << std::endl;
     std::cerr << std::endl;
     std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1024 output.dat" << std::endl;
@@ -41,8 +43,12 @@ int main(int argc, char **argv)
   std::string base_file = input_prefix + ".0" + suffix;
   int nmesh = std::atol(argv[4]);
 
+  int jk_level = std::atol(argv[5]);
+  if(jk_level < 1) jk_level = 1;
+  const int jk_block = jk_level * jk_level * jk_level;
+
   std::string output_filename = "xi_halo_ifft.dat";
-  if(argc == 6) output_filename = std::string(argv[5]);
+  if(argc == 7) output_filename = std::string(argv[6]);
 
   std::cout << "# input prefix " << input_prefix << std::endl;
   std::cout << "# base file " << base_file << std::endl;
@@ -51,6 +57,7 @@ int main(int argc, char **argv)
   std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
   std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
   std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
+  std::cout << "# jackknife block " << jk_block << std::endl;
 
   load_halos halos;
   halos.read_header(base_file);
@@ -88,12 +95,19 @@ int main(int argc, char **argv)
   cor.nmesh = nmesh;
   cor.mmin = mvir_min;
   cor.mmax = mvir_max;
+  cor.jk_block = jk_block;
+  cor.jk_level = jk_level;
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
   std::vector<float> weight;
+
+  if(jk_block <= 1) {
   cor.calc_xi_ifft(dens_mesh, weight);
-  cor.output_xi_ifft(output_filename, weight);
+  } else {
+    cor.calc_xi_jk_ifft(dens_mesh, weight);
+  }
+  cor.output_xi(output_filename, weight);
 
   return EXIT_SUCCESS;
 }

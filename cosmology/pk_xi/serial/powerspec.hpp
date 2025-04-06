@@ -76,8 +76,8 @@ void powerspec::set_kbin(double _kmin, double _kmax, int _nk, bool _log_scale = 
 
   log_scale = _log_scale;
 
-  kbin.resize(nk + 1, 0.0);
-  kcen.resize(nk, 0.0);
+  kbin.assign(nk + 1, 0.0);
+  kcen.assign(nk, 0.0);
 
   if(kmax > nmesh) {
     kmax = nmesh;
@@ -203,11 +203,8 @@ void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
   double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
   // int nk = (int)(nmesh);
 
-  power.resize(nk);
-  weight.resize(nk);
-
-  std::fill(power.begin(), power.end(), 0.0);
-  std::fill(weight.begin(), weight.end(), 0.0);
+  power.assign(nk, 0.0);
+  weight.assign(nk, 0.0);
 
   fftwf_plan plan;
   plan = fftwf_plan_dft_r2c_3d(nmesh, nmesh, nmesh, mesh.data(), (fftwf_complex *)mesh.data(), FFTW_ESTIMATE);
@@ -288,7 +285,7 @@ void powerspec::calc_power_spec_ell(T &mesh, TT &multipole_power, T &weight)
   double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
   // int nk = (int)(nmesh);
 
-  weight.resize(nk);
+  weight.assign(nk, 0.0);
   multipole_power.resize(ellmax, T(nk));
 
   fftwf_plan plan;
@@ -299,8 +296,7 @@ void powerspec::calc_power_spec_ell(T &mesh, TT &multipole_power, T &weight)
 
   for(int ell = 0; ell < ellmax; ell++) {
     T power_ell;
-    power_ell.resize(nk);
-    std::fill(power_ell.begin(), power_ell.end(), 0.0);
+    power_ell.assign(nk, 0.0);
 
     std::cout << "# calc pk ell=" << ell << std::endl;
     std::fill(weight.begin(), weight.end(), 0.0); // set effective values in the last loop
@@ -385,11 +381,9 @@ void powerspec::calc_power_spec_1d_corrction(T &mesh, T &power, T &weight)
   double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
   // int nk = (int)(nmesh);
 
-  power.resize(nk);
-  weight.resize(nk);
+  power.assign(nk, 0.0);
+  weight.assign(nk, 0);
 
-  std::fill(power.begin(), power.end(), 0.0);
-  std::fill(weight.begin(), weight.end(), 0.0);
 
   fftwf_plan plan;
   plan = fftwf_plan_dft_r2c_3d(nmesh, nmesh, nmesh, mesh.data(), (fftwf_complex *)mesh.data(), FFTW_ESTIMATE);

@@ -11,8 +11,8 @@ const bool log_bin = false;
 
 int main(int argc, char **argv)
 {
-  if(argc < 3) {
-    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh (output_filename)" << std::endl;
+  if(argc < 4) {
+    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh jk_level (output_filename)" << std::endl;
     std::exit(EXIT_SUCCESS);
   }
 
@@ -24,14 +24,19 @@ int main(int argc, char **argv)
   std::string input_prefix = std::string(argv[1]);
   int nmesh = std::atol(argv[2]);
 
+  int jk_level = std::atol(argv[3]);
+  if(jk_level < 1) jk_level = 1;
+  const int jk_block = jk_level * jk_level * jk_level;
+
   std::string output_filename = "xi_matter_ifft.dat";
-  if(argc == 4) output_filename = std::string(argv[3]);
+  if(argc == 5) output_filename = std::string(argv[4]);
 
   std::cout << "# input prefix " << input_prefix << std::endl;
   std::cout << "# output filename " << output_filename << std::endl;
   std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
   std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
   std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
+  std::cout << "# jackknife block " << jk_block << std::endl;
 
   load_ptcl<particle_pot_str> snap;
   snap.nmesh = nmesh;
@@ -66,12 +71,18 @@ int main(int argc, char **argv)
   cor.p = snap.scheme;
   cor.lbox = lbox;
   cor.nmesh = nmesh;
+  cor.jk_block = jk_block;
+  cor.jk_level = jk_level;
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
   std::vector<float> weight;
+  if(jk_block <= 1) {
   cor.calc_xi_ifft(dens_mesh, weight);
-  cor.output_xi_ifft(output_filename, weight);
+  } else {
+    cor.calc_xi_jk_ifft(dens_mesh, weight);
+  }
+  cor.output_xi(output_filename, weight);
 
   std::exit(EXIT_SUCCESS);
 }
