@@ -46,17 +46,17 @@ public:
   template <typename T>
   int get_k_index(T);
 
-  template <typename T>
-  void calc_power_spec(T &, T &, T &);
-  template <typename T, typename TT>
-  void calc_power_spec_ell(T &, TT &, T &);
+  float calc_window(int64_t, int64_t, int64_t);
 
   template <typename T>
-  double fit_power(T &);
-  double W(double *, double);
-  double C2_correct_factor(double, double, int, double);
+  void calc_power_spec(T &, T &, T &);
   template <typename T>
-  void correct_aliasing_pk(T &r, int);
+  void calc_power_spec(T &, T &, T &, T &);
+
+  template <typename T, typename TT>
+  void calc_power_spec_ell(T &, TT &, T &);
+  template <typename T, typename TT>
+  void calc_power_spec_ell(T &, T &, TT &, T &);
 
   template <typename T>
   void output_pk(T &, T &, std::string);
@@ -185,7 +185,39 @@ void powerspec::output_pk_ell(TT &multipole_power, T &weight, std::string filena
   std::cout << "output to " << filename << std::endl;
 }
 
-/* 3D pk filtering */
+float powerspec::calc_window(int64_t ix, int64_t iy, int64_t iz)
+{
+  const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
+  const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
+  const float kz = (float)(iz);
+
+  float d = pi / nmesh;
+  auto wx = (ix == 0) ? 1.0 : (sin(d * kx) / (d * kx));
+  auto wy = (iy == 0) ? 1.0 : (sin(d * ky) / (d * ky));
+  auto wz = (iz == 0) ? 1.0 : (sin(d * kz) / (d * kz));
+
+  // p == 1 ; // for NGP weight w
+  if(p == 2) {
+    // for CIC weight w^2
+    wx *= wx;
+    wy *= wy;
+    wz *= wz;
+  } else if(p == 3) {
+    // for TSC weight w^3 ((w^3)^2 in Fourie space)
+    wx = (wx * wx * wx);
+    wy = (wy * wy * wy);
+    wz = (wz * wz * wz);
+  }
+
+  // for Fourie space
+  wx = wx * wx;
+  wy = wy * wy;
+  wz = wz * wz;
+
+  float win2 = (p == 0) ? 1.0 : wx * wy * wz;
+  return win2;
+}
+
 template <typename T>
 void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
 {
@@ -217,40 +249,14 @@ void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
   for(uint64_t ix = 0; ix < nmesh; ix++) {
     for(uint64_t iy = 0; iy < nmesh; iy++) {
       for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
-
         const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
         const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
         const float kz = (float)(iz);
 
-        // int32_t ik = (int)(sqrt(SQR(kx) + SQR(ky) + SQR(kz)));
         auto k = sqrt(SQR(kx) + SQR(ky) + SQR(kz));
         int32_t ik = get_k_index(k);
         int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
-
-        auto d = pi / nmesh;
-        auto wx = (ix == 0) ? 1.0 : (sin(d * kx) / (d * kx));
-        auto wy = (iy == 0) ? 1.0 : (sin(d * ky) / (d * ky));
-        auto wz = (iz == 0) ? 1.0 : (sin(d * kz) / (d * kz));
-
-        // p == 1 ; // for NGP weight w
-        if(p == 2) {
-          // for CIC weight w^2
-          wx *= wx;
-          wy *= wy;
-          wz *= wz;
-        } else if(p == 3) {
-          // for TSC weight w^3 ((w^3)^2 in Fourie space)
-          wx = (wx * wx * wx);
-          wy = (wy * wy * wy);
-          wz = (wz * wz * wz);
-        }
-
-        // for Fourie space
-        wx = wx * wx;
-        wy = wy * wy;
-        wz = wz * wz;
-
-        const auto win2 = (p == 0) ? 1.0 : wx * wy * wz;
+        auto win2 = calc_window(ix, iy, iz);
 
         if(ik > 0 && ik < nk) {
           auto tmp_power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
@@ -265,7 +271,77 @@ void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
   for(int ik = 0; ik < nk; ik++) {
     power[ik] /= (weight[ik] + 1e-20);
     power[ik] /= pk_norm;
+        }
+
+  fftwf_destroy_plan(plan);
+}
+
+template <typename T>
+void powerspec::calc_power_spec(T &mesh1, T &mesh2, T &power, T &weight)
+{
+  static_assert(!std::is_same<T, float>::value, "Only float is allowed");
+
+  if(mesh1.data() == mesh2.data()) {
+    calc_power_spec(mesh1, power, weight);
+    return;
   }
+
+  assert(mesh1.size() == mesh2.size());
+
+  check_p();
+
+  static bool fft_init = false;
+  if(fft_init == false) {
+    fftwf_init_threads();
+    fftwf_plan_with_nthreads(omp_get_max_threads());
+    fft_init = true;
+  }
+
+  double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
+  // int nk = (int)(nmesh);
+
+  power.assign(nk, 0.0);
+  weight.assign(nk, 0.0);
+
+  fftwf_plan plan;
+  plan = fftwf_plan_dft_r2c_3d(nmesh, nmesh, nmesh, mesh1.data(), (fftwf_complex *)mesh1.data(), FFTW_ESTIMATE);
+  fftwf_execute_dft_r2c(plan, mesh1.data(), (fftwf_complex *)(mesh1.data()));
+  fftwf_execute_dft_r2c(plan, mesh2.data(), (fftwf_complex *)(mesh2.data()));
+
+  fftwf_complex *mesh_hat1 = (fftwf_complex *)mesh1.data();
+  fftwf_complex *mesh_hat2 = (fftwf_complex *)mesh2.data();
+
+// #pragma omp parallel for collapse(3) reduction(+ : power[ : nmesh], weight[ : nmesh])
+#pragma omp parallel for collapse(3) reduction(vec_float_plus : power, weight)
+  for(uint64_t ix = 0; ix < nmesh; ix++) {
+    for(uint64_t iy = 0; iy < nmesh; iy++) {
+      for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
+
+        const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
+        const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
+        const float kz = (float)(iz);
+
+        auto k = sqrt(SQR(kx) + SQR(ky) + SQR(kz));
+        int32_t ik = get_k_index(k);
+        int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
+        auto win2 = calc_window(ix, iy, iz);
+
+        if(ik > 0 && ik < nk) {
+          auto tmp_power = (c_re(mesh_hat1[im]) * c_re(mesh_hat2[im])) + (c_im(mesh_hat1[im]) * c_im(mesh_hat2[im]));
+          power[ik] += tmp_power / win2;
+          weight[ik] += 1.0;
+        }
+      }
+    }
+  } // ix,iy,iz loop
+
+#pragma omp parallel for
+  for(int ik = 0; ik < nk; ik++) {
+    power[ik] /= (weight[ik] + 1e-20);
+    power[ik] /= pk_norm;
+  }
+
+  fftwf_destroy_plan(plan);
 }
 
 template <typename T, typename TT>
@@ -312,43 +388,17 @@ void powerspec::calc_power_spec_ell(T &mesh, TT &multipole_power, T &weight)
           const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
           const float kz = (float)(iz);
 
-          auto d = pi / nmesh;
-          auto wx = (ix == 0) ? 1.0 : (sin(d * kx) / (d * kx));
-          auto wy = (iy == 0) ? 1.0 : (sin(d * ky) / (d * ky));
-          auto wz = (iz == 0) ? 1.0 : (sin(d * kz) / (d * kz));
-
-          // p == 1 ; // for NGP weight w
-          if(p == 2) {
-            // for CIC weight w^2
-            wx *= wx;
-            wy *= wy;
-            wz *= wz;
-          } else if(p == 3) {
-            // for TSC weight w^3 ((w^3)^2 in Fourie space)
-            wx = (wx * wx * wx);
-            wy = (wy * wy * wy);
-            wz = (wz * wz * wz);
-          }
-
-          // for Fourie space
-          wx = wx * wx;
-          wy = wy * wy;
-          wz = wz * wz;
-
-          const auto win2 = (p == 0) ? 1.0 : wx * wy * wz;
-
           double k = sqrt(SQR(kx) + SQR(ky) + SQR(kz));
           double mu = (double)kz / k;
 
-          // int32_t ik = (int)(k);
           int32_t ik = get_k_index(k);
           int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
+          auto win2 = calc_window(ix, iy, iz);
 
           double tmp_power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
           tmp_power /= win2;
 
           if(ik > 0 && ik < nk) {
-            // multipole_power[l][ik] += tmp_power * std::legendre(ell, mu);
             power_ell[ik] += tmp_power * std::legendre(ell, mu);
             weight[ik] += 1.0;
           }
@@ -364,13 +414,24 @@ void powerspec::calc_power_spec_ell(T &mesh, TT &multipole_power, T &weight)
                                                      // [0,1] (2.0 * ell + 1.0)/2.0 * 2.0
     }
   } // l-loop
+
+  fftwf_destroy_plan(plan);
 }
 
-#if 0
-/* 1D pk filtering */
-template <typename T>
-void powerspec::calc_power_spec_1d_corrction(T &mesh, T &power, T &weight)
+template <typename T, typename TT>
+void powerspec::calc_power_spec_ell(T &mesh1, T &mesh2, TT &multipole_power, T &weight)
 {
+  static_assert(!std::is_same<T, float>::value, "Only float is allowed");
+
+  if(mesh1.data() == mesh2.data()) {
+    calc_power_spec_ell(mesh1, multipole_power, weight);
+    return;
+  }
+
+  assert(mesh1.size() == mesh2.size());
+
+  check_p();
+
   static bool fft_init = false;
   if(fft_init == false) {
     fftwf_init_threads();
@@ -381,18 +442,27 @@ void powerspec::calc_power_spec_1d_corrction(T &mesh, T &power, T &weight)
   double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
   // int nk = (int)(nmesh);
 
-  power.assign(nk, 0.0);
-  weight.assign(nk, 0);
-
+  weight.assign(nk, 0.0);
+  multipole_power.resize(ellmax, T(nk));
 
   fftwf_plan plan;
-  plan = fftwf_plan_dft_r2c_3d(nmesh, nmesh, nmesh, mesh.data(), (fftwf_complex *)mesh.data(), FFTW_ESTIMATE);
-  fftwf_execute(plan);
+  plan = fftwf_plan_dft_r2c_3d(nmesh, nmesh, nmesh, mesh1.data(), (fftwf_complex *)mesh1.data(), FFTW_ESTIMATE);
+  fftwf_execute_dft_r2c(plan, mesh1.data(), (fftwf_complex *)(mesh1.data()));
+  fftwf_execute_dft_r2c(plan, mesh2.data(), (fftwf_complex *)(mesh2.data()));
 
-  fftwf_complex *mesh_hat = (fftwf_complex *)mesh.data();
+  fftwf_complex *mesh_hat1 = (fftwf_complex *)mesh1.data();
+  fftwf_complex *mesh_hat2 = (fftwf_complex *)mesh2.data();
 
-// #pragma omp parallel for collapse(3) reduction(+ : power[ : nmesh], weight[ : nmesh])
-#pragma omp parallel for collapse(3) reduction(vec_float_plus : power, weight)
+  for(int ell = 0; ell < ellmax; ell++) {
+    T power_ell;
+    power_ell.assign(nk, 0.0);
+
+    std::cout << "# calc pk ell=" << ell << std::endl;
+    std::fill(weight.begin(), weight.end(), 0.0); // set effective values in the last loop
+    std::fill(multipole_power[ell].begin(), multipole_power[ell].end(), 0.0);
+
+// #pragma omp parallel for collapse(3) reduction(vec_float_plus : multipole_power[l], weight)
+#pragma omp parallel for collapse(3) reduction(vec_float_plus : power_ell, weight)
   for(uint64_t ix = 0; ix < nmesh; ix++) {
     for(uint64_t iy = 0; iy < nmesh; iy++) {
       for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
@@ -401,106 +471,33 @@ void powerspec::calc_power_spec_1d_corrction(T &mesh, T &power, T &weight)
         const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
         const float kz = (float)(iz);
 
-        // int32_t ik = (int)(sqrt(SQR(kx) + SQR(ky) + SQR(kz)));
         double k = sqrt(SQR(kx) + SQR(ky) + SQR(kz));
+          double mu = (double)kz / k;
+
+          // int32_t ik = (int)(k);
         int32_t ik = get_k_index(k);
         int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
+          auto win2 = calc_window(ix, iy, iz);
+
+          auto tmp_power = (c_re(mesh_hat1[im]) * c_re(mesh_hat2[im])) + (c_im(mesh_hat1[im]) * c_im(mesh_hat2[im]));
+          tmp_power /= win2;
 
         if(ik > 0 && ik < nk) {
-          power[ik] += SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
+            power_ell[ik] += tmp_power * std::legendre(ell, mu);
           weight[ik] += 1.0;
         }
       }
     }
-  } // ix,iy,iz loop
+    } // ix,iy,iz-loop
 
 #pragma omp parallel for
   for(int ik = 0; ik < nk; ik++) {
-    power[ik] /= (weight[ik] + 1e-20);
-    power[ik] /= pk_norm;
+      multipole_power[ell][ik] = power_ell[ik] / (weight[ik] + 1e-20);
+      multipole_power[ell][ik] /= pk_norm;
+      multipole_power[ell][ik] *= (2.0 * ell + 1.0); // Multiply by 2 since the integral range of mu is not [-1,1] but
+                                                     // [0,1] (2.0 * ell + 1.0)/2.0 * 2.0
   }
+  } // l-loop
 
-  if(p > 0) {
-    std::cout << "# correct aliasing pk" << std::endl;
-    correct_aliasing_pk(power, nmesh);
+  fftwf_destroy_plan(plan);
   }
-}
-
-template <typename T>
-double powerspec::fit_power(T &pk)
-{
-  // evaluate the power-law slope between k_ny/2 < k < k_ny
-  double alpha = log(pk[ikny] / pk[ikny2]) / log(kny / kny2);
-  return alpha;
-}
-
-double powerspec::W(double *kvec, double k_ny)
-{
-  double k[3];
-  k[0] = pi * kvec[0] / (2.0 * k_ny);
-  k[1] = pi * kvec[1] / (2.0 * k_ny);
-  k[2] = pi * kvec[2] / (2.0 * k_ny);
-
-  double wk = sin(k[0]) * sin(k[1]) * sin(k[2]) / (k[0] * k[1] * k[2]);
-
-  if(p == 1) return (wk);
-  else if(p == 2) return (wk * wk);
-  else if(p == 3) return (wk * wk * wk);
-  else if(p == 4) return (wk * wk * wk * wk);
-  else std::exit(EXIT_FAILURE);
-}
-
-double powerspec::C2_correct_factor(double k, double k_ny, int nmax, double alpha)
-{
-  double kvec[3];
-  int nvec[3];
-  double sum;
-  kvec[0] = kvec[1] = kvec[2] = k / sqrt(3.0);
-
-  sum = 0.0;
-
-#pragma omp parellel for collapse(3) reduction(+ : sum)
-  for(nvec[0] = -nmax; nvec[0] <= nmax; nvec[0]++) {
-    for(nvec[1] = -nmax; nvec[1] <= nmax; nvec[1]++) {
-      for(nvec[2] = -nmax; nvec[2] <= nmax; nvec[2]++) {
-        double knvec[3];
-        knvec[0] = kvec[0] + 2.0 * k_ny * nvec[0];
-        knvec[1] = kvec[1] + 2.0 * k_ny * nvec[1];
-        knvec[2] = kvec[2] + 2.0 * k_ny * nvec[2];
-
-        double kn = sqrt(knvec[0] * knvec[0] + knvec[1] * knvec[1] + knvec[2] * knvec[2]);
-        sum += SQR(W(knvec, k_ny)) * pow(kn, alpha);
-      }
-    }
-  }
-
-  double kn = sqrt(kvec[0] * kvec[0] + kvec[1] * kvec[1] + kvec[2] * kvec[2]);
-  return (sum / pow(kn, alpha));
-}
-
-template <typename T>
-void powerspec::correct_aliasing_pk(T &power, int nmesh)
-{
-  double k_nyquist = kny;
-
-  T pk_cor(nk);
-
-  double alpha, alpha_new;
-  alpha = fit_power(power);
-  alpha_new = alpha;
-  do {
-    alpha = alpha_new;
-
-#pragma omp parellel for
-    for(int ik = 0; ik < nk; ik++) {
-      double k = kcen[ik];
-      pk_cor[ik] = power[ik] / C2_correct_factor(k, k_nyquist, 2, alpha);
-    }
-
-    alpha_new = fit_power(pk_cor);
-  } while(fabs(alpha - alpha_new) > 1.0e-5);
-
-  power = pk_cor;
-}
-
-#endif

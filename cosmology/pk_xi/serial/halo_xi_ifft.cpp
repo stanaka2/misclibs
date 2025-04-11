@@ -102,11 +102,7 @@ int main(int argc, char **argv)
 
   std::vector<float> weight;
 
-  if(jk_block <= 1) {
   cor.calc_xi_ifft(dens_mesh, weight);
-  } else {
-    cor.calc_xi_jk_ifft(dens_mesh, weight);
-  }
   cor.output_xi(output_filename, weight);
 
   return EXIT_SUCCESS;

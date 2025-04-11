@@ -14,6 +14,7 @@ const std::string suffix = ".h5";
 
 constexpr bool log_bin = false;
 constexpr bool use_Landy_Szalay = false;
+// constexpr bool use_Landy_Szalay = true;
 
 int main(int argc, char **argv)
 {
@@ -81,16 +82,14 @@ int main(int argc, char **argv)
   cor.mmax = mvir_max;
   cor.jk_block = jk_block;
   cor.jk_level = jk_level;
+  cor.use_LS = use_Landy_Szalay;
 
-  cor.set_halo_pm_group(pos, mvir);
+  // cor.jk_type = 0;
+  // cor.nrand_factor = 1;
 
-  if(jk_block <= 1) {
-    if constexpr(use_Landy_Szalay) cor.calc_xi_LS();
-    else cor.calc_xi();
-  } else {
-    if constexpr(use_Landy_Szalay) cor.calc_xi_jk_LS();
-    else cor.calc_xi_jk(1);
-  }
+  auto grp = cor.set_halo_pm_group(pos, mvir);
+
+  cor.calc_xi(grp);
   cor.output_xi(output_filename);
 
   return EXIT_SUCCESS;
