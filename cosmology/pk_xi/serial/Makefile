@@ -26,13 +26,11 @@ halo_xi: halo_xi.o
 halo_xi_ifft: halo_xi_ifft.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 
-
 xi_from_pk: xi_from_pk.o
 	$(CXX) $(CXXFLAGS) $< $(FFTW_LIB) -o $@
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< $(HDF5_INC) $(FFTW_INC)
-
 
 
 .PHONY : clean

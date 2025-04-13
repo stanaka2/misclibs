@@ -7,58 +7,41 @@
 #include "field.hpp"
 #include "load_halo.hpp"
 #include "powerspec.hpp"
-
-const std::string suffix = ".h5";
-// const std::string suffix = ".hdf5";
-
-const bool log_bin = false;
+#include "base_opts.hpp"
 
 int main(int argc, char **argv)
 {
-  if(argc < 5) {
-    std::cerr << "Usage:: " << argv[0] << " mvir_min mvir_max hdf5_halo_prefix nmesh (output_filename)" << std::endl;
-    std::cerr << "mvir_min, mvir_max:: log10 Msun/h scale (ex. 12.0 15.0)" << std::endl;
-    std::cerr << "hdf5_halo_prefix:: HDF5 halo prefix. (ex. ./halo_props/S003/halos)" << std::endl;
-    std::cerr << "nmesh:: FFT mesh of 1D (ex. 1024)" << std::endl;
-    std::cerr << "(output_filename):: opition. output filename" << std::endl;
-    std::cerr << std::endl;
-    std::cerr << argv[0] << " 12.0 15.0 ./halo_props/S003/halos 1024 output.dat" << std::endl;
-    std::exit(EXIT_SUCCESS);
-  }
+  BaseOptions opt(argc, argv);
+  std::string base_file = opt.input_prefix + ".0" + opt.h5_suffix;
 
   float mvir_min, mvir_max;
-  mvir_min = pow(10.0, atof(argv[1]));
-  mvir_max = pow(10.0, atof(argv[2]));
+  mvir_min = pow(10.0, opt.mrange[0]);
+  mvir_max = pow(10.0, opt.mrange[1]);
 
-  double kmin = 1e-2;
-  double kmax = 50;
-  int nk = 250;
+  int nk = opt.nk;
+  float kmin = opt.krange[0];
+  float kmax = opt.krange[1];
+  bool log_bin = opt.log_bin;
+  auto nmesh = opt.nmesh;
 
-  std::string input_prefix = std::string(argv[3]);
-  std::string base_file = input_prefix + ".0" + suffix;
-
-  int nmesh = std::atol(argv[4]);
-
-  std::string output_filename = "pk_halo.dat";
-  if(argc == 6) output_filename = std::string(argv[5]);
-
-  std::cout << "# input prefix " << input_prefix << std::endl;
+  std::cout << "# input prefix " << opt.input_prefix << std::endl;
   std::cout << "# base file " << base_file << std::endl;
-  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# output filename " << opt.output_filename << std::endl;
   std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
   std::cout << "# kmin, kmax, Nk " << kmin << ", " << kmax << ", " << nk << std::endl;
-  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
+  std::cout << "# log_bin " << std::boolalpha << opt.log_bin << std::endl;
   std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
+  std::cout << std::endl;
 
   load_halos halos;
   halos.read_header(base_file);
   halos.print_header();
-  halos.scheme = 3;
+  halos.scheme = opt.p_assign;
 
   std::vector<float> pos;
   std::vector<float> mvir;
 
-  halos.load_halo_pm(pos, mvir, input_prefix, suffix);
+  halos.load_halo_pm(pos, mvir, opt.input_prefix, opt.h5_suffix);
 
   int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
   int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
@@ -97,19 +80,19 @@ halo_assign_mesh(pos, mvir, dens_mesh, nmesh, lbox, halos.scheme);
   power.lbox = lbox;
   power.nmesh = nmesh;
 
-  power.set_kbin(kmin, kmax, nk, log_bin);
+  power.set_kbin(kmin, kmax, nk, opt.log_bin);
   //   power.check_kbin();
 
 #if 1
   std::vector<float> power_dens;
   std::vector<float> weight_dens;
   power.calc_power_spec(dens_mesh, power_dens, weight_dens);
-  power.output_pk(power_dens, weight_dens, output_filename);
+  power.output_pk(power_dens, weight_dens, opt.output_filename);
 #else
   std::vector<std::vector<float>> power_dens_ell;
   std::vector<float> weight_dens;
   power.calc_power_spec_ell(dens_mesh, power_dens_ell, weight_dens);
-  power.output_pk_ell(power_dens_ell, weight_dens, output_filename);
+  power.output_pk_ell(power_dens_ell, weight_dens, opt.output_filename);
 #endif
 
   std::exit(EXIT_SUCCESS);

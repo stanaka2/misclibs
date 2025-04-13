@@ -6,36 +6,29 @@
 
 #include "load_ptcl.hpp"
 #include "powerspec.hpp"
-
-const bool log_bin = false;
+#include "base_opts.hpp"
 
 int main(int argc, char **argv)
 {
-  if(argc < 3) {
-    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh (output_filename)" << std::endl;
-    std::exit(EXIT_SUCCESS);
-  }
+  BaseOptions opt(argc, argv);
 
-  double kmin = 1e-2;
-  double kmax = 50;
-  int nk = 250;
+  int nk = opt.nk;
+  float kmin = opt.krange[0];
+  float kmax = opt.krange[1];
+  bool log_bin = opt.log_bin;
+  auto nmesh = opt.nmesh;
 
-  std::string input_prefix = std::string(argv[1]);
-  int nmesh = std::atol(argv[2]);
-
-  std::string output_filename = "pk_matter.dat";
-  if(argc == 4) output_filename = std::string(argv[3]);
-
-  std::cout << "# input prefix " << input_prefix << std::endl;
-  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# input prefix " << opt.input_prefix << std::endl;
+  std::cout << "# output filename " << opt.output_filename << std::endl;
   std::cout << "# kmin, kmax, Nk " << kmin << ", " << kmax << ", " << nk << std::endl;
-  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
+  std::cout << "# log_bin " << std::boolalpha << opt.log_bin << std::endl;
   std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
+  std::cout << std::endl;
 
   load_ptcl<particle_pot_str> snap;
   snap.nmesh = nmesh;
-  snap.scheme = 3;
-  snap.read_header(input_prefix);
+  snap.scheme = opt.p_assign;
+  snap.read_header(opt.input_prefix);
 
   double lbox(snap.h.BoxSize);
   double ptcl_mass(snap.ptcl_mass);
@@ -46,7 +39,7 @@ int main(int argc, char **argv)
   int type = 0;
   std::vector<float> dens_mesh(nfft_tot);
   std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
-  snap.load_gdt_and_assing(input_prefix, dens_mesh, type);
+  snap.load_gdt_and_assing(opt.input_prefix, dens_mesh, type);
 
   double dens_mean = 0.0;
   for(int64_t i = 0; i < nfft_tot; i++) {
@@ -73,12 +66,12 @@ int main(int argc, char **argv)
   std::vector<float> power_dens;
   std::vector<float> weight_dens;
   power.calc_power_spec(dens_mesh, power_dens, weight_dens);
-  power.output_pk(power_dens, weight_dens, output_filename);
+  power.output_pk(power_dens, weight_dens, opt.output_filename);
 #else
   std::vector<std::vector<float>> power_dens_ell;
   std::vector<float> weight_dens;
   power.calc_power_spec_ell(dens_mesh, power_dens_ell, weight_dens);
-  power.output_pk_ell(power_dens_ell, weight_dens, output_filename);
+  power.output_pk_ell(power_dens_ell, weight_dens, opt.output_filename);
 #endif
 
   std::exit(EXIT_SUCCESS);

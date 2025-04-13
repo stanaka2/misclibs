@@ -6,42 +6,68 @@
 
 #include "load_ptcl.hpp"
 #include "correlationfunc.hpp"
+#include "base_opts.hpp"
 
-const bool log_bin = false;
+class ProgOptions : public BaseOptions
+{
+public:
+  /* default arguments */
+  int jk_level = 1;
+  int jk_type = 0;
+  /* end arguments */
+
+  ProgOptions() = default;
+  ProgOptions(int argc, char **argv)
+  {
+    app.description(std::string(argv[0]) + " description");
+    add_to_base_app(app);
+    add_to_app(app);
+
+    try {
+      app.parse(argc, argv);
+    } catch(const CLI::ParseError &e) {
+      std::exit(app.exit(e));
+    }
+  }
+
+protected:
+  template <typename T>
+  void add_to_app(T &app)
+  {
+    app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
+    app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
+        ->check(CLI::IsMember({0, 1}))
+        ->capture_default_str();
+  }
+};
 
 int main(int argc, char **argv)
 {
-  if(argc < 4) {
-    std::cerr << "Usage:: " << argv[0] << " gdt_snap_prefix nmesh jk_level (output_filename)" << std::endl;
-    std::exit(EXIT_SUCCESS);
-  }
+  ProgOptions opt(argc, argv);
 
-  int nr = 100;
-  float rmin, rmax; // [Mpc/h]
-  rmin = 0.1;
-  rmax = 150.0;
+  int nr = opt.nr;
+  float rmin = opt.rrange[0];
+  float rmax = opt.rrange[1];
+  bool log_bin = opt.log_bin;
 
-  std::string input_prefix = std::string(argv[1]);
-  int nmesh = std::atol(argv[2]);
-
-  int jk_level = std::atol(argv[3]);
+  int jk_level = opt.jk_level;
   if(jk_level < 1) jk_level = 1;
   const int jk_block = jk_level * jk_level * jk_level;
 
-  std::string output_filename = "xi_matter_ifft.dat";
-  if(argc == 5) output_filename = std::string(argv[4]);
+  auto nmesh = opt.nmesh;
 
-  std::cout << "# input prefix " << input_prefix << std::endl;
-  std::cout << "# output filename " << output_filename << std::endl;
+  std::cout << "# input prefix " << opt.input_prefix << std::endl;
+  std::cout << "# output filename " << opt.output_filename << std::endl;
   std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
   std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
   std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
   std::cout << "# jackknife block " << jk_block << std::endl;
+  std::cout << std::endl;
 
   load_ptcl<particle_pot_str> snap;
   snap.nmesh = nmesh;
-  snap.scheme = 3;
-  snap.read_header(input_prefix);
+  snap.scheme = opt.p_assign;
+  snap.read_header(opt.input_prefix);
 
   double lbox(snap.h.BoxSize);
   double ptcl_mass(snap.ptcl_mass);
@@ -52,7 +78,7 @@ int main(int argc, char **argv)
   int type = 0;
   std::vector<float> dens_mesh(nfft_tot);
   std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
-  snap.load_gdt_and_assing(input_prefix, dens_mesh, type);
+  snap.load_gdt_and_assing(opt.input_prefix, dens_mesh, type);
 
   double dens_mean = 0.0;
   for(int64_t i = 0; i < nfft_tot; i++) {
@@ -78,7 +104,7 @@ int main(int argc, char **argv)
 
   std::vector<float> weight;
   cor.calc_xi_ifft(dens_mesh, weight);
-  cor.output_xi(output_filename, weight);
+  cor.output_xi(opt.output_filename, weight);
 
   std::exit(EXIT_SUCCESS);
 }
