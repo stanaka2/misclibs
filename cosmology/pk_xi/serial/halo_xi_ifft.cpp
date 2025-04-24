@@ -98,6 +98,12 @@ int main(int argc, char **argv)
   for(size_t i = 0; i < mvir.size(); i++) {
     if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
   }
+
+  int64_t nhalo_select = 0;
+  for(size_t i = 0; i < ones.size(); i++) {
+    nhalo_select += ones[i];
+  }
+
   halo_assign_mesh(pos, ones, dens_mesh, nmesh, lbox, halos.scheme);
 
   double dens_mean = 0.0;
@@ -116,8 +122,10 @@ int main(int argc, char **argv)
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
-  std::vector<float> weight;
+  cor.shotnoise_corr = !opt.no_shotnoise;
+  cor.set_shotnoise(nhalo_select);
 
+  std::vector<float> weight;
   cor.calc_xi_ifft(dens_mesh, weight);
   cor.output_xi(opt.output_filename, weight);
 

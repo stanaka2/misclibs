@@ -102,6 +102,9 @@ int main(int argc, char **argv)
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
+  cor.shotnoise_corr = !opt.no_shotnoise;
+  cor.set_shotnoise(snap.npart_tot);
+
   std::vector<float> weight;
   cor.calc_xi_ifft(dens_mesh, weight);
   cor.output_xi(opt.output_filename, weight);

@@ -32,7 +32,7 @@ public:
 
   /* radius of searching cell : (ndiv_1d+2)^3 */
   // int ndiv_1d = 1;
-  int ndiv_1d = 2;
+  int ndiv_1d = 4;
 
   int jk_type = 0; /* 0: spaced-block, 1:shuffle-block */
   int jk_block, jk_level;
@@ -54,6 +54,8 @@ public:
   void set_rbin(double, double, int, double, bool = true);
   void check_rbin();
 
+  template <typename T>
+  std::vector<group> set_ptcl_pos_group(T &, double);
   template <typename T>
   std::vector<group> set_halo_pm_group(T &, T &);
   template <typename T>
@@ -86,7 +88,7 @@ private:
   int get_cell_index(T, int);
 
   template <typename T>
-  void shuffle_halo_data(T &, const int = 10);
+  void shuffle_data(T &, const int = 10);
 
   template <typename G, typename C>
   std::vector<double> calc_pair(const double, G &, C &, int, int, int, const bool, const std::string);
@@ -226,6 +228,36 @@ int correlation::get_cell_index(T pos, int nc)
 }
 
 template <typename T>
+std::vector<group> correlation::set_ptcl_pos_group(T &pdata, double sampling_ratio)
+{
+  uint64_t nptcls_full = pdata.size();
+  uint64_t nptcls = nptcls_full * sampling_ratio;
+  std::cerr << "# input ptcls " << nptcls_full << " ~ " << (int)(pow((double)nptcls_full, 1.0 / 3.0)) << "^3"
+            << std::endl;
+
+  std::vector<group> grp(nptcls);
+
+  // Fisher–Yates shuffle
+  std::random_device rd;
+  std::mt19937 g(rd());
+  std::vector<uint64_t> indices(nptcls_full);
+  std::iota(indices.begin(), indices.end(), 0);
+  std::shuffle(indices.begin(), indices.end(), g);
+
+#pragma omp parallel for
+  for(uint64_t i = 0; i < nptcls; i++) {
+    uint64_t j = indices[i];
+    grp[i].xpos = pdata[j].pos[0] / lbox; // [0,1]
+    grp[i].ypos = pdata[j].pos[1] / lbox; // [0,1]
+    grp[i].zpos = pdata[j].pos[2] / lbox; // [0,1]
+  }
+
+  std::cerr << "# sampling ptcls " << nptcls << " ~ " << (int)(pow((double)nptcls, 1.0 / 3.0)) << "^3" << std::endl;
+
+  return grp;
+}
+
+template <typename T>
 std::vector<group> correlation::set_halo_pm_group(T &pos, T &mvir)
 {
   uint64_t nhalo = mvir.size();
@@ -319,7 +351,7 @@ std::vector<group> correlation::set_random_group(uint64_t nrand, const int seed)
 }
 
 template <typename T>
-void correlation::shuffle_halo_data(T &grp, const int seed)
+void correlation::shuffle_data(T &grp, const int seed)
 {
   uint64_t ngrp = grp.size();
   std::mt19937_64 rng(seed);
@@ -1042,7 +1074,7 @@ void correlation::calc_xi_jk_impl(T &grp)
     set_block_edge_id(grp);
   } else {
     std::cerr << "blocked jackknife by shuffled sampling" << std::endl;
-    shuffle_halo_data(grp);
+    shuffle_data(grp);
     set_block_edge_id_shuffle(ngrp);
   }
 
@@ -1083,8 +1115,8 @@ void correlation::calc_xi_jk_impl(T &grp1, T &grp2)
     set_block_edge_id(grp1, grp2);
   } else {
     std::cerr << "blocked jackknife by shuffled sampling" << std::endl;
-    shuffle_halo_data(grp1);
-    shuffle_halo_data(grp2);
+    shuffle_data(grp1);
+    shuffle_data(grp2);
     set_block_edge_id_shuffle(ngrp1, ngrp2);
   }
 
@@ -1131,7 +1163,7 @@ void correlation::calc_xi_jk_LS_impl(T &grp)
     set_rand_block_edge_id(rand);
   } else {
     std::cerr << "blocked jackknife by shuffled sampling" << std::endl;
-    shuffle_halo_data(grp);
+    shuffle_data(grp);
     set_block_edge_id_shuffle(ngrp);
     set_rand_block_edge_id_shuffle(nrand);
   }
@@ -1186,8 +1218,8 @@ void correlation::calc_xi_jk_LS_impl(T &grp1, T &grp2)
     set_rand_block_edge_id(rand1, rand2);
   } else {
     std::cerr << "blocked jackknife by shuffled sampling" << std::endl;
-    shuffle_halo_data(grp1);
-    shuffle_halo_data(grp2);
+    shuffle_data(grp1);
+    shuffle_data(grp2);
     set_block_edge_id_shuffle(ngrp1, ngrp2);
     set_rand_block_edge_id_shuffle(nrand1, nrand2);
   }
@@ -1614,6 +1646,9 @@ void correlation::calc_xi_ifft_impl(T &mesh, T &weight)
     fft_init = true;
   }
 
+  const double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
+  const auto norm = 1.0 / pk_norm;
+
   xi.assign(nr, 0.0);
   weight.assign(nr, 0);
 
@@ -1631,7 +1666,7 @@ void correlation::calc_xi_ifft_impl(T &mesh, T &weight)
         int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
         auto win2 = calc_window(ix, iy, iz);
         auto power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
-        c_re(mesh_hat[im]) = power / win2;
+        c_re(mesh_hat[im]) = (power / win2) - shotnoise;
         c_im(mesh_hat[im]) = 0.0;
       }
     }
@@ -1641,8 +1676,6 @@ void correlation::calc_xi_ifft_impl(T &mesh, T &weight)
   fftwf_plan plan_backward = fftwf_plan_dft_c2r_3d(nmesh, nmesh, nmesh, mesh_hat, mesh.data(), FFTW_ESTIMATE);
   fftwf_execute(plan_backward);
 
-  const double pk_norm = (double)(nmesh * nmesh) * (double)(nmesh * nmesh) * (double)(nmesh * nmesh);
-  const auto norm = 1.0 / pk_norm;
 #pragma omp parallel for
   for(int64_t i = 0; i < mesh.size(); i++) {
     mesh[i] *= norm;
@@ -1893,7 +1926,7 @@ void correlation::calc_xi_jk_ifft_impl(T &mesh_orig, T &weight)
           int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
           auto win2 = calc_window(ix, iy, iz);
           auto power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
-          c_re(mesh_hat[im]) = power / win2;
+          c_re(mesh_hat[im]) = (power / win2) - shotnoise;
           c_im(mesh_hat[im]) = 0.0;
         }
       }

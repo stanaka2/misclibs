@@ -62,6 +62,11 @@ halo_assign_mesh(pos, mvir, dens_mesh, nmesh, lbox, halos.scheme);
     if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
   }
 
+  int64_t nhalo_select = 0;
+  for(size_t i = 0; i < ones.size(); i++) {
+    nhalo_select += ones[i];
+  }
+
   halo_assign_mesh(pos, ones, dens_mesh, nmesh, lbox, halos.scheme);
 
   double dens_mean = 0.0;
@@ -82,6 +87,9 @@ halo_assign_mesh(pos, mvir, dens_mesh, nmesh, lbox, halos.scheme);
 
   power.set_kbin(kmin, kmax, nk, opt.log_bin);
   //   power.check_kbin();
+
+  power.shotnoise_corr = !opt.no_shotnoise;
+  power.set_shotnoise(nhalo_select);
 
 #if 1
   std::vector<float> power_dens;

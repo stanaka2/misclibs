@@ -7,11 +7,14 @@ HDF5_LIB = -lhdf5_serial
 FFTW_INC =
 FFTW_LIB = -lfftw3_omp -lfftw3 -lfftw3f_omp -lfftw3f
 
-EXEC = matter_power matter_xi_ifft halo_power halo_xi halo_xi_ifft
+EXEC = matter_power matter_xi matter_xi_ifft halo_power halo_xi halo_xi_ifft
 
 all: $(EXEC)
 
 matter_power: matter_power.o
+	$(CXX) $(CXXFLAGS) $< $(FFTW_LIB) -o $@
+
+matter_xi: matter_xi.o
 	$(CXX) $(CXXFLAGS) $< $(FFTW_LIB) -o $@
 
 matter_xi_ifft: matter_xi_ifft.o

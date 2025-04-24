@@ -88,7 +88,55 @@ public:
     ptcl_mass = h.mass[1] * 1.0e+10;
   }
 
-  void load_gdt_pot(std::string FileBase)
+  void load_gdt_ptcl_pos(std::string FileBase)
+  {
+    int dummy;
+    gadget::header htmp = h; // initialization by rank 0 header
+    std::vector<int> filenum_list;
+
+    for(int i = 0; i < nfiles; i++) filenum_list.push_back(i);
+
+    std::cerr << "Reading gadget snapshot files ...";
+
+    pdata.reserve((long long int)(npart_tot));
+
+    for(auto itr = filenum_list.begin(); itr != filenum_list.end(); ++itr) {
+      std::cerr << "read Gadget snapshot : " << FileBase + "." + itos(*itr) << "..." << std::endl;
+      std::string file_buff = detect_hierarchical_input(FileBase, *itr);
+      std::ifstream fin(file_buff.c_str(), std::ios::binary);
+
+      SKIP;
+      fin.read((char *)&htmp, sizeof(gadget::header));
+      SKIP;
+
+      uint64_t np = htmp.npart[1];
+
+      T pdata1;
+      std::vector<float> pos(3 * np);
+
+      SKIP;
+      fin.read((char *)&pos[0], 3 * np * sizeof(float));
+      SKIP;
+
+      fin.close();
+
+      double boxsize = h.BoxSize;
+
+      for(int i = 0; i < np; i++) {
+        for(int j = 0; j < 3; j++) {
+          pdata1.pos[j] = pos[3 * i + j];
+
+          if(pdata1.pos[j] < 0.0) pdata1.pos[j] += (double)boxsize;
+          if(pdata1.pos[j] >= boxsize) pdata1.pos[j] -= (double)boxsize;
+        }
+        pdata.push_back(pdata1);
+      }
+    }
+    h = htmp;
+    std::cerr << " done." << std::endl;
+  }
+
+  void load_gdt_ptcl_pos_pot(std::string FileBase)
   {
     int dummy;
     gadget::header htmp = h; // initialization by rank 0 header

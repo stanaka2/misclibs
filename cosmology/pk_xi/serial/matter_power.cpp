@@ -62,6 +62,9 @@ int main(int argc, char **argv)
   power.set_kbin(kmin, kmax, nk, log_bin);
   //   power.check_kbin();
 
+  power.shotnoise_corr = !opt.no_shotnoise;
+  power.set_shotnoise(snap.npart_tot);
+
 #if 1
   std::vector<float> power_dens;
   std::vector<float> weight_dens;

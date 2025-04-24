@@ -19,6 +19,7 @@ public:
 
   int nmesh = 1024;
   int p_assign = 3;
+  bool no_shotnoise = false;
 
   bool verbose = false;
 
@@ -85,6 +86,7 @@ protected:
 
     app.add_option("-n,--nmesh", nmesh, "number of FFT mesh size")->capture_default_str();
     app.add_option("--p_assign", p_assign, "particle assign type")->check(CLI::IsMember({1, 2, 3}))->capture_default_str();
+    app.add_flag("--no_shotnoise", no_shotnoise, "disable shot noise correction")->capture_default_str();
 
     app.add_flag("-v,--verbose", verbose, "verbose output");
     // clang-format on

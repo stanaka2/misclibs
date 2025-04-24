@@ -39,6 +39,12 @@ public:
               // 3:TSC : triangular-shaped cloud
               // 4:PCS : Piecewise Cubic Spline
 
+  bool shotnoise_corr = false;
+  double shotnoise = 0.0;
+  // No shot noise correction is applied for cross power spectrum.
+  // This is because shot noise arises from self-pairs (i == j),
+  // which are absent in cross-correlations between independent particle fields.
+
   void set_kbin(double, double, int, bool);
   void check_kbin();
   void check_p() const;
@@ -47,6 +53,8 @@ public:
   int get_k_index(T);
 
   float calc_window(int64_t, int64_t, int64_t);
+  template <typename T>
+  void set_shotnoise(const T, const double = 1.0);
 
   template <typename T>
   void calc_power_spec(T &, T &, T &);
@@ -185,6 +193,19 @@ void powerspec::output_pk_ell(TT &multipole_power, T &weight, std::string filena
   std::cout << "output to " << filename << std::endl;
 }
 
+template <typename T>
+void powerspec::set_shotnoise(const T ngrp, const double vol)
+{
+  if(shotnoise_corr) {
+    auto norm = (double)nmesh * (double)nmesh * (double)nmesh; // N^3
+    norm *= norm;                                              // N^6
+    shotnoise = vol / (double)ngrp;
+    shotnoise *= norm;
+  } else {
+    shotnoise = 0.0;
+  }
+}
+
 float powerspec::calc_window(int64_t ix, int64_t iy, int64_t iz)
 {
   const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
@@ -260,7 +281,7 @@ void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
 
         if(ik > 0 && ik < nk) {
           auto tmp_power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
-          power[ik] += tmp_power / win2;
+          power[ik] += (tmp_power / win2) - shotnoise;
           weight[ik] += 1.0;
         }
       }
@@ -396,7 +417,7 @@ void powerspec::calc_power_spec_ell(T &mesh, TT &multipole_power, T &weight)
           auto win2 = calc_window(ix, iy, iz);
 
           double tmp_power = SQR(c_re(mesh_hat[im])) + SQR(c_im(mesh_hat[im]));
-          tmp_power /= win2;
+          tmp_power = (tmp_power / win2) - shotnoise;
 
           if(ik > 0 && ik < nk) {
             power_ell[ik] += tmp_power * std::legendre(ell, mu);
