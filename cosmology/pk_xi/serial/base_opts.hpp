@@ -16,6 +16,7 @@ public:
   int nr = 100;
   std::vector<float> rrange = {1.0, 150.0};
   std::vector<float> mrange = {1.0f, 20.0f};
+  std::vector<int> clevel = {0, 100};
 
   int nmesh = 1024;
   int p_assign = 3;
@@ -83,6 +84,7 @@ protected:
     app.add_option("--nr", nr, "number of r-bins")->capture_default_str();
     app.add_option("--rrange", rrange, "rmin and rmax")->expected(2)->capture_default_str();
     app.add_option("--mrange", mrange, "minimum halo mass (log10)")->expected(2)->capture_default_str();
+    app.add_option("--clevel", clevel, "halo child level. 0:host- 1:sub- n:n-th child- halo")->expected(2)->capture_default_str();
 
     app.add_option("-n,--nmesh", nmesh, "number of FFT mesh size")->capture_default_str();
     app.add_option("--p_assign", p_assign, "particle assign type")->check(CLI::IsMember({1, 2, 3}))->capture_default_str();

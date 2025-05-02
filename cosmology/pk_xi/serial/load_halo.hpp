@@ -59,6 +59,8 @@ public:
   template <typename T>
   void load_halo_pm(T &, T &, std::string, std::string);
   template <typename T, typename U>
+  void load_halo_pml(T &, T &, U &, std::string, std::string);
+  template <typename T, typename U>
   void load_halo_pmpl(T &, T &, T &, U &, std::string, std::string);
 };
 
@@ -306,6 +308,41 @@ void load_halos::load_halo_pm(T &in_pos, T &in_mvir, std::string input_prefix, s
   pos.shrink_to_fit();
   mvir.clear();
   mvir.shrink_to_fit();
+}
+
+template <typename T, typename U>
+void load_halos::load_halo_pml(T &in_pos, T &in_mvir, U &in_level, std::string input_prefix, std::string suffix)
+{
+  auto nhalos = nhalos_all;
+
+  in_pos.clear();
+  in_mvir.clear();
+  in_level.clear();
+
+  in_pos.reserve(nhalos * 3);
+  in_mvir.reserve(nhalos);
+  in_level.reserve(nhalos);
+
+  for(int ifile = 0; ifile < nfile; ifile++) {
+    char cifile[128];
+    sprintf(cifile, ".%d", ifile);
+    std::string input_file = input_prefix + cifile + suffix;
+    read_data(input_file);
+    in_pos.insert(in_pos.end(), pos.begin(), pos.end());
+    in_mvir.insert(in_mvir.end(), mvir.begin(), mvir.end());
+    in_level.insert(in_level.end(), level.begin(), level.end());
+  }
+
+  assert(in_pos.size() == nhalos * 3);
+  assert(in_mvir.size() == nhalos);
+  assert(in_level.size() == nhalos);
+
+  pos.clear();
+  pos.shrink_to_fit();
+  mvir.clear();
+  mvir.shrink_to_fit();
+  level.clear();
+  level.shrink_to_fit();
 }
 
 template <typename T, typename U>

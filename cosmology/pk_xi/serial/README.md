@@ -1,4 +1,4 @@
-# Power Spectrum and Correlation Function  calculator
+# Power Spectrum and Correlation Function calculator
 
 ## Mass assigments
 

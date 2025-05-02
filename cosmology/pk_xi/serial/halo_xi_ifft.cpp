@@ -83,8 +83,8 @@ int main(int argc, char **argv)
   double lbox(halos.box_size);
   std::vector<float> pos;
   std::vector<float> mvir;
-
-  halos.load_halo_pm(pos, mvir, opt.input_prefix, opt.h5_suffix);
+  std::vector<int> clevel;
+  halos.load_halo_pml(pos, mvir, clevel, opt.input_prefix, opt.h5_suffix);
 
   int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
   int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
@@ -96,7 +96,9 @@ int main(int argc, char **argv)
   /* halo selection */
   std::vector<float> ones(mvir.size(), 0.0);
   for(size_t i = 0; i < mvir.size(); i++) {
+    if(opt.clevel[0] <= clevel[i] && clevel[i] <= opt.clevel[1]) {
     if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
+    }
   }
 
   int64_t nhalo_select = 0;

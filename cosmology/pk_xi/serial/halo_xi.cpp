@@ -96,8 +96,8 @@ int main(int argc, char **argv)
 
   std::vector<float> pos;
   std::vector<float> mvir;
-
-  halos.load_halo_pm(pos, mvir, opt.input_prefix, opt.h5_suffix);
+  std::vector<int> clevel;
+  halos.load_halo_pml(pos, mvir, clevel, opt.input_prefix, opt.h5_suffix);
 
   correlation cor;
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
   cor.jk_type = opt.jk_type;
   cor.nrand_factor = opt.nrand_factor;
 
-  auto grp = cor.set_halo_pm_group(pos, mvir);
+  auto grp = cor.set_halo_pml_group(pos, mvir, clevel, opt.clevel[0], opt.clevel[1]);
 
   cor.calc_xi(grp);
   cor.output_xi(opt.output_filename);

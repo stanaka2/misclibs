@@ -14,9 +14,8 @@
 struct group {
   float xpos, ypos, zpos;
   float xvel, yvel, zvel;
-  float rad, mass;
+  float mass;
   float pot;
-  int nmem;
   int block_id; // for jackknife
 };
 
@@ -42,7 +41,7 @@ public:
   // for position xi
   // support Landy SD, Szalay AS 1993, Apj
   bool use_LS = false;
-  int64_t nrand_factor = 5;
+  int64_t nrand_factor = 1;
   std::vector<double> dd_pair, dr_pair, dr2_pair, rr_pair;                          // size[nr]
   std::vector<std::vector<double>> dd_pair_jk, dr_pair_jk, dr2_pair_jk, rr_pair_jk; // size[block][nr]
   std::vector<double> xi, xi_ave, xi_sd, xi_se;                                     // size[nr]
@@ -58,6 +57,8 @@ public:
   std::vector<group> set_ptcl_pos_group(T &, double);
   template <typename T>
   std::vector<group> set_halo_pm_group(T &, T &);
+  template <typename T, typename U>
+  std::vector<group> set_halo_pml_group(T &, T &, U &, int, int);
   template <typename T>
   std::vector<group> set_halo_pvm_group(T &, T &, T &);
   template <typename T>
@@ -275,6 +276,36 @@ std::vector<group> correlation::set_halo_pm_group(T &pos, T &mvir)
       ig++;
     }
   }
+  grp.resize(ig);
+  std::cerr << "# selection halo " << ig << " ~ " << (int)(pow((double)ig, 1.0 / 3.0)) << "^3" << std::endl;
+
+  return grp;
+}
+
+template <typename T, typename U>
+std::vector<group> correlation::set_halo_pml_group(T &pos, T &mvir, U &clevel, int clevel_min, int clevel_max)
+{
+  assert(clevel_min <= clevel_max);
+
+  uint64_t nhalo = mvir.size();
+  std::vector<group> grp(nhalo);
+  std::cerr << "# input halo " << nhalo << " ~ " << (int)(pow((double)nhalo, 1.0 / 3.0)) << "^3" << std::endl;
+
+  uint64_t ig = 0;
+  for(uint64_t i = 0; i < nhalo; i++) {
+    auto m = mvir[i];
+    auto cl = clevel[i];
+    if(clevel_min <= cl && cl <= clevel_max) {
+      if(mmin <= m && m <= mmax) {
+        grp[ig].xpos = pos[3 * i + 0] / lbox; // [0,1]
+        grp[ig].ypos = pos[3 * i + 1] / lbox; // [0,1]
+        grp[ig].zpos = pos[3 * i + 2] / lbox; // [0,1]
+        grp[ig].mass = m;
+        ig++;
+      }
+    }
+  }
+
   grp.resize(ig);
   std::cerr << "# selection halo " << ig << " ~ " << (int)(pow((double)ig, 1.0 / 3.0)) << "^3" << std::endl;
 
