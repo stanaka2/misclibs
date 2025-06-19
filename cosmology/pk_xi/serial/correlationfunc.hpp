@@ -175,7 +175,6 @@ void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bo
     for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin * pow(ratio, ir + 0.5);
 
   } else {
-    rmin = 0.0;
     lin_dr = (rmax - rmin) / (double)(nr);
     for(int ir = 0; ir < nr + 1; ir++) rbin[ir] = rmin + lin_dr * ir;
     for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin + lin_dr * (ir + 0.5);
@@ -776,9 +775,9 @@ void correlation::calc_xi_impl(T &grp)
   xi.assign(nr, 0.0);
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   std::vector<std::vector<int>> cell_list(nc3);
@@ -837,9 +836,9 @@ void correlation::calc_xi_impl(T &grp1, T &grp2)
   xi.assign(nr, 0.0);
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   std::vector<std::vector<int>> cell_list1(nc3);
@@ -913,9 +912,9 @@ void correlation::calc_xi_LS_impl(T &grp)
   auto rand = set_random_group(nrand);
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   std::vector<std::vector<int>> cell_list(nc3);
@@ -995,9 +994,9 @@ void correlation::calc_xi_LS_impl(T &grp1, T &grp2)
   auto rand2 = set_random_group(nrand2, 2);
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   std::vector<std::vector<int>> cell_list1(nc3);
@@ -1308,9 +1307,9 @@ void correlation::resample_jk(T &grp)
   uint64_t ngrp = grp.size();
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   for(int iblock = 0; iblock < nblock; iblock++) {
@@ -1379,9 +1378,9 @@ void correlation::resample_jk(T &grp1, T &grp2)
   uint64_t ngrp2 = grp2.size();
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   for(int iblock = 0; iblock < nblock; iblock++) {
@@ -1464,9 +1463,9 @@ void correlation::resample_jk_LS(T &grp, T &rand)
   uint64_t nrand = rand.size();
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   for(int iblock = 0; iblock < nblock; iblock++) {
@@ -1553,9 +1552,9 @@ void correlation::resample_jk_LS(T &grp1, T &grp2, T &rand1, T &rand2)
   uint64_t nrand2 = rand2.size();
 
   /* Here only the global box size */
-  const int ncx = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncy = ndiv_1d * std::ceil(1.0 / rmax);
-  const int ncz = ndiv_1d * std::ceil(1.0 / rmax);
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
   for(int iblock = 0; iblock < nblock; iblock++) {

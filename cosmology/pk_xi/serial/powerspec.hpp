@@ -98,7 +98,6 @@ void powerspec::set_kbin(double _kmin, double _kmax, int _nk, bool _log_scale = 
     for(int ik = 0; ik < nk + 1; ik++) kbin[ik] = kmin * pow(ratio, ik);
     for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin * pow(ratio, ik + 0.5);
   } else {
-    kmin = 0.0;
     lin_dk = (kmax - kmin) / (double)(nk);
     for(int ik = 0; ik < nk + 1; ik++) kbin[ik] = kmin + lin_dk * ik;
     for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin + lin_dk * (ik + 0.5);

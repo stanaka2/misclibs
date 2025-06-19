@@ -163,7 +163,7 @@ void load_halos::read_data_field(hid_t handle, const char *name, T *data)
 
 void load_halos::read_header(std::string filename)
 {
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
 
   // Open a group named "Header".
@@ -189,7 +189,7 @@ void load_halos::read_header(std::string filename)
 void load_halos::read_pos_data(std::string filename)
 {
   pos.resize(nhalos_file * 3);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "pos", pos.data());
@@ -200,7 +200,7 @@ void load_halos::read_pos_data(std::string filename)
 void load_halos::read_mvir_data(std::string filename)
 {
   mvir.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "Mvir", mvir.data());
@@ -211,7 +211,7 @@ void load_halos::read_mvir_data(std::string filename)
 void load_halos::read_rvir_data(std::string filename)
 {
   rvir.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "Rvir", rvir.data());
@@ -222,7 +222,7 @@ void load_halos::read_rvir_data(std::string filename)
 void load_halos::read_pot_data(std::string filename)
 {
   pot.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "pot_total", pot.data());
@@ -233,7 +233,7 @@ void load_halos::read_pot_data(std::string filename)
 void load_halos::read_pot_tree_data(std::string filename)
 {
   pot_tree.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "pot_tree", pot_tree.data());
@@ -244,7 +244,7 @@ void load_halos::read_pot_tree_data(std::string filename)
 void load_halos::read_pot_pm_data(std::string filename)
 {
   pot_pm.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "pot_pm", pot_pm.data());
@@ -255,7 +255,7 @@ void load_halos::read_pot_pm_data(std::string filename)
 void load_halos::read_level_data(std::string filename)
 {
   level.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT);
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   assert(hfid >= 0);
   hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
   read_data_field(hgid, "child_level", level.data());
