@@ -97,7 +97,7 @@ int main(int argc, char **argv)
   std::vector<float> ones(mvir.size(), 0.0);
   for(size_t i = 0; i < mvir.size(); i++) {
     if(opt.clevel[0] <= clevel[i] && clevel[i] <= opt.clevel[1]) {
-    if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
+      if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
     }
   }
 

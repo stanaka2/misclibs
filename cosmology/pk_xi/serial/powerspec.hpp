@@ -26,7 +26,7 @@ public:
   double kmin, kmax, dk;
   double kny, kny2;
   int ikny, ikny2;
-  std::vector<float> kbin, kcen; // bin edge and center
+  std::vector<float> kcen; // bin center
 
   bool log_scale;
   double lin_dk, lin_dk2; // k, k^2 base
@@ -84,7 +84,6 @@ void powerspec::set_kbin(double _kmin, double _kmax, int _nk, bool _log_scale = 
 
   log_scale = _log_scale;
 
-  kbin.assign(nk + 1, 0.0);
   kcen.assign(nk, 0.0);
 
   if(kmax > nmesh) {
@@ -95,11 +94,9 @@ void powerspec::set_kbin(double _kmin, double _kmax, int _nk, bool _log_scale = 
     if(kmin < 1e-10) kmin = 1e-10;
     ratio = pow(kmax / kmin, 1.0 / (double)(nk));
     logratio = log(ratio);
-    for(int ik = 0; ik < nk + 1; ik++) kbin[ik] = kmin * pow(ratio, ik);
     for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin * pow(ratio, ik + 0.5);
   } else {
     lin_dk = (kmax - kmin) / (double)(nk);
-    for(int ik = 0; ik < nk + 1; ik++) kbin[ik] = kmin + lin_dk * ik;
     for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin + lin_dk * (ik + 0.5);
   }
 
@@ -291,7 +288,7 @@ void powerspec::calc_power_spec(T &mesh, T &power, T &weight)
   for(int ik = 0; ik < nk; ik++) {
     power[ik] /= (weight[ik] + 1e-20);
     power[ik] /= pk_norm;
-        }
+  }
 
   fftwf_destroy_plan(plan);
 }
@@ -483,41 +480,41 @@ void powerspec::calc_power_spec_ell(T &mesh1, T &mesh2, TT &multipole_power, T &
 
 // #pragma omp parallel for collapse(3) reduction(vec_float_plus : multipole_power[l], weight)
 #pragma omp parallel for collapse(3) reduction(vec_float_plus : power_ell, weight)
-  for(uint64_t ix = 0; ix < nmesh; ix++) {
-    for(uint64_t iy = 0; iy < nmesh; iy++) {
-      for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
+    for(uint64_t ix = 0; ix < nmesh; ix++) {
+      for(uint64_t iy = 0; iy < nmesh; iy++) {
+        for(uint64_t iz = 0; iz < nmesh / 2 + 1; iz++) {
 
-        const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
-        const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
-        const float kz = (float)(iz);
+          const float kx = (ix < nmesh / 2) ? (float)(ix) : (float)(nmesh - ix);
+          const float ky = (iy < nmesh / 2) ? (float)(iy) : (float)(nmesh - iy);
+          const float kz = (float)(iz);
 
-        double k = sqrt(SQR(kx) + SQR(ky) + SQR(kz));
+          double k = sqrt(SQR(kx) + SQR(ky) + SQR(kz));
           double mu = (double)kz / k;
 
           // int32_t ik = (int)(k);
-        int32_t ik = get_k_index(k);
-        int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
+          int32_t ik = get_k_index(k);
+          int64_t im = iz + (nmesh / 2 + 1) * (iy + nmesh * ix);
           auto win2 = calc_window(ix, iy, iz);
 
           auto tmp_power = (c_re(mesh_hat1[im]) * c_re(mesh_hat2[im])) + (c_im(mesh_hat1[im]) * c_im(mesh_hat2[im]));
           tmp_power /= win2;
 
-        if(ik > 0 && ik < nk) {
+          if(ik > 0 && ik < nk) {
             power_ell[ik] += tmp_power * std::legendre(ell, mu);
-          weight[ik] += 1.0;
+            weight[ik] += 1.0;
+          }
         }
       }
-    }
     } // ix,iy,iz-loop
 
 #pragma omp parallel for
-  for(int ik = 0; ik < nk; ik++) {
+    for(int ik = 0; ik < nk; ik++) {
       multipole_power[ell][ik] = power_ell[ik] / (weight[ik] + 1e-20);
       multipole_power[ell][ik] /= pk_norm;
       multipole_power[ell][ik] *= (2.0 * ell + 1.0); // Multiply by 2 since the integral range of mu is not [-1,1] but
                                                      // [0,1] (2.0 * ell + 1.0)/2.0 * 2.0
-  }
+    }
   } // l-loop
 
   fftwf_destroy_plan(plan);
-  }
+}

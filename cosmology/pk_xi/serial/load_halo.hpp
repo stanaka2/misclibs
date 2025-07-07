@@ -91,9 +91,11 @@ void load_halos::read_data(std::string filename)
   read_mvir_data(filename);
   read_rvir_data(filename);
 
+  /*
   read_pot_data(filename);
   read_pot_tree_data(filename);
   read_pot_pm_data(filename);
+  */
   read_level_data(filename);
 }
 

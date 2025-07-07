@@ -26,6 +26,9 @@ halo_power: halo_power.o
 halo_xi: halo_xi.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 
+halo_xi2D: halo_xi2D.o
+	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
+
 halo_xi_ifft: halo_xi_ifft.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 

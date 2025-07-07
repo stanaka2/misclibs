@@ -78,12 +78,18 @@ def xi(boxsize, nthreads, binfile, X, Y, Z,
 xi_results = xi(boxsize, nthreads, rbins, x, y, z, verbose=True, output_ravg=True)
 
 rcen = 0.5 * (xi_results["rmin"] + xi_results["rmax"])
-output_file = "corrfunc_xi.txt"
-header = "# rmin rmax rcen rpavg xi npairs"
+output_file = "corrfunc_xi.dat"
 
-np.savetxt(output_file,
-           np.column_stack([xi_results['rmin'], xi_results['rmax'], rcen,
-                            xi_results['ravg'], xi_results['xi'],
-                            xi_results['npairs']]), fmt="%.6e", delimiter=" ", header=header)
+if 0:
+    header = "# rmin rmax rcen rpavg xi npairs"
+    np.savetxt(output_file,
+               np.column_stack([xi_results['rmin'], xi_results['rmax'], rcen,
+                                xi_results['ravg'], xi_results['xi'],
+                                xi_results['npairs']]), fmt="%.8e", delimiter=" ", header=header)
+else:
+    header = "# rcen xi npairs"
+    np.savetxt(output_file,
+               np.column_stack([rcen, xi_results['xi'],
+                                xi_results['npairs']]), fmt="%.8e", delimiter=" ", header=header)
 
 print(f"xi results with rcenter saved to {output_file}")

@@ -14,11 +14,15 @@ class ProgOptions : public BaseOptions
 {
 public:
   /* default arguments */
+  std::string mode = "spsp";
+  bool half_angle = false;
   int jk_level = 1;
   int jk_type = 0;
   bool use_LS = false;
   int nrand_factor = 1;
   /* end arguments */
+
+  bool mode_spsp = true; // default = spsp
 
   ProgOptions() = default;
   ProgOptions(int argc, char **argv)
@@ -29,6 +33,7 @@ public:
 
     try {
       app.parse(argc, argv);
+      mode_spsp = (mode == "spsp");
     } catch(const CLI::ParseError &e) {
       std::exit(app.exit(e));
     }
@@ -38,6 +43,14 @@ protected:
   template <typename T>
   void add_to_app(T &app)
   {
+    app.add_option("--mode", mode, "pair-counting mode")
+        ->check(CLI::IsMember({"spsp", "smu"}))
+        ->default_val("spsp")
+        ->capture_default_str();
+    app.add_flag("--half_angle", half_angle,
+                 "If set, calculate only the upper half-range (0<mu<1 or 0<s_para<Rmax); "
+                 "if not set, calculate the full range (-1<mu<1 or -Rmax<s_para<Rmax)")
+        ->capture_default_str();
     app.add_flag("--use_LS", use_LS, "use Landy Szalay estimator")->capture_default_str();
     app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
     app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
@@ -60,7 +73,61 @@ int main(int argc, char **argv)
   int nr = opt.nr;
   float rmin = opt.rrange[0];
   float rmax = opt.rrange[1];
-  bool log_bin = opt.log_bin;
+  // bool log_bin = opt.log_bin;
+  bool log_bin = false;
+
+  auto mode_spsp = opt.mode_spsp;
+  auto half_angle = opt.half_angle;
+
+  int nr1, r1min, r1max;
+  int nr2, r2min, r2max;
+
+  if(opt.mode_spsp) {
+    // spsp mode
+    if(!half_angle) {
+      // s_perp
+      nr1 = nr;
+      r1min = rmin;
+      r1max = rmax;
+      // s_perp
+      nr2 = 2 * nr;
+      r2min = -rmax;
+      r2max = rmax;
+
+    } else {
+      // s_perp
+      nr1 = nr;
+      r1min = rmin;
+      r1max = rmax;
+      // s_para
+      nr2 = nr;
+      r2min = 0.0;
+      r2max = rmax;
+    }
+
+  } else {
+    // smu mode
+    if(!half_angle) {
+      // s
+      nr1 = nr;
+      r1min = rmin;
+      r1max = rmax;
+      // mu
+      nr2 = 2 * nr;
+      r2min = -1.0;
+      r2max = 1.0;
+
+    } else {
+      // s
+      nr1 = nr;
+      r1min = rmin;
+      r1max = rmax;
+      // mu
+      nr2 = nr;
+      r2min = 0.0;
+      r2max = 1.0;
+    }
+  }
 
   int jk_level = opt.jk_level;
   if(jk_level < 1) jk_level = 1;
@@ -73,11 +140,8 @@ int main(int argc, char **argv)
   std::cout << "# output filename " << opt.output_filename << std::endl;
   std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
   std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
-  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
-  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
-  std::cout << "# jackknife block " << jk_block << std::endl;
-  std::cout << "# Landy Szalay estimator" << std::boolalpha << opt.use_LS << std::endl;
-  if(opt.use_LS) std::cout << "# nrand factor" << std::boolalpha << opt.nrand_factor << std::endl;
+  std::cout << "# mode_spsp " << mode_spsp << std::endl;
+  std::cout << "# half_angle " << half_angle << std::endl;
   std::cout << std::endl;
 
   load_halos halos;
@@ -100,7 +164,13 @@ int main(int argc, char **argv)
   halos.load_halo_pml(pos, mvir, clevel, opt.input_prefix, opt.h5_suffix);
 
   correlation cor;
-  cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
+
+  if(mode_spsp) {
+    cor.set_spspbin(r1min, r1max, nr1, r2min, r2max, nr2, lbox);
+  } else {
+    cor.set_smubin(r1min, r1max, nr1, r2min, r2max, nr2, lbox);
+  }
+
   cor.mmin = mvir_min;
   cor.mmax = mvir_max;
   cor.jk_block = jk_block;
@@ -111,8 +181,12 @@ int main(int argc, char **argv)
 
   auto grp = cor.set_halo_pml_group(pos, mvir, clevel, opt.clevel[0], opt.clevel[1]);
 
-  cor.calc_xi(grp);
-  cor.output_xi(opt.output_filename);
-
+  if(mode_spsp) {
+    cor.calc_xi_spsp(grp);
+    cor.output_xi_spsp(opt.output_filename);
+  } else {
+    cor.calc_xi_smu(grp);
+    cor.output_xi_smu(opt.output_filename);
+  }
   return EXIT_SUCCESS;
 }

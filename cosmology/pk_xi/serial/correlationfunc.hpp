@@ -24,7 +24,7 @@ class correlation : public powerspec
 public:
   int nr = 100;
   double rmin, rmax;
-  std::vector<float> rbin, rcen; // bin edge and center
+  std::vector<float> rcen; // bin center
 
   double rmin2, rmax2;    // r, r^2 base
   double lin_dr, lin_dr2; // r, r^2 base
@@ -37,6 +37,18 @@ public:
   int jk_block, jk_level;
   int jk_dd, jk_dd2, nblock;
   double mmin, mmax;
+
+  bool symmetry = true; // true: count each pair once (i<j only)
+                        // false: count both directions
+
+  int nmu;
+  double mumin, mumax, dmu;
+  std::vector<float> mucen; // bin center
+
+  int nsperp, nspara;
+  double sperp_min, sperp_max, dsperp;
+  double spara_min, spara_max, dspara;
+  std::vector<float> sperpcen, sparacen; // bin center
 
   // for position xi
   // support Landy SD, Szalay AS 1993, Apj
@@ -52,6 +64,8 @@ public:
 
   void set_rbin(double, double, int, double, bool = true);
   void check_rbin();
+  void set_smubin(double, double, int, double, double, int, double);
+  void set_spspbin(double, double, int, double, double, int, double);
 
   template <typename T>
   std::vector<group> set_ptcl_pos_group(T &, double);
@@ -74,9 +88,16 @@ public:
   template <typename T>
   void calc_xi_ifft(T &, T &, T &);
 
+  template <typename T>
+  void calc_xi_smu(T &);
+  template <typename T>
+  void calc_xi_spsp(T &);
+
   void output_xi(std::string);
   template <typename T>
   void output_xi(std::string, T &);
+  void output_xi_smu(std::string);
+  void output_xi_spsp(std::string);
 
 private:
   template <typename T>
@@ -86,18 +107,35 @@ private:
   template <typename T>
   int get_ir_form_dr(T, T, T);
   template <typename T>
+  int get_imu_form_dr(T, T, T);
+  template <typename T>
   int get_cell_index(T, int);
 
   template <typename T>
   void shuffle_data(T &, const int = 10);
 
   template <typename G, typename C>
-  std::vector<double> calc_pair(const double, G &, C &, int, int, int, const bool, const std::string);
+  std::vector<double> calc_pair(const double, G &, C &, int, int, int, const std::string);
   template <typename G, typename C>
   std::vector<double> calc_pair(const double, G &, G &, C &, C &, int, int, int, const std::string);
 
+  template <typename G, typename C>
+  std::vector<double> calc_pair_smu(const double, G &, C &, int, int, int, const std::string);
+  template <typename G, typename C>
+  std::vector<double> calc_pair_smu(const double, G &, G &, C &, C &, int, int, int, const std::string);
+
+  template <typename G, typename C>
+  std::vector<double> calc_pair_spsp(const double, G &, C &, int, int, int, const std::string);
+  template <typename G, typename C>
+  std::vector<double> calc_pair_spsp(const double, G &, G &, C &, C &, int, int, int, const std::string);
+
   template <typename T>
   void calc_xi_impl(T &);
+  template <typename T>
+  void calc_xi_smu_impl(T &);
+  template <typename T>
+  void calc_xi_spsp_impl(T &);
+
   template <typename T>
   void calc_xi_impl(T &, T &);
   template <typename T>
@@ -163,7 +201,6 @@ void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bo
   rmin2 = rmin * rmin;
   rmax2 = rmax * rmax;
 
-  rbin.assign(nr + 1, 0.0);
   rcen.assign(nr, 0.0);
 
   if(log_scale) {
@@ -171,12 +208,10 @@ void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bo
     ratio = pow(rmax / rmin, 1.0 / (double)(nr));
     logratio = log(ratio);
     logratio2 = 2 * logratio;
-    for(int ir = 0; ir < nr + 1; ir++) rbin[ir] = rmin * pow(ratio, ir);
     for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin * pow(ratio, ir + 0.5);
 
   } else {
     lin_dr = (rmax - rmin) / (double)(nr);
-    for(int ir = 0; ir < nr + 1; ir++) rbin[ir] = rmin + lin_dr * ir;
     for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin + lin_dr * (ir + 0.5);
   }
 }
@@ -186,12 +221,69 @@ void correlation::check_rbin()
   for(int ir = 0; ir < nr; ir++) std::cerr << ir << " " << rcen[ir] << " " << get_r_index(rcen[ir]) << "\n";
 }
 
+void correlation::set_smubin(double _rmin, double _rmax, int _nr, double _mumin, double _mumax, int _nmu, double _lbox)
+{
+  log_scale = false;
+  lbox = _lbox;
+
+  nr = _nr;
+  rmin = _rmin / lbox;
+  rmax = _rmax / lbox;
+  rmin2 = rmin * rmin;
+  rmax2 = rmax * rmax;
+
+  rcen.assign(nr, 0.0);
+  lin_dr = (rmax - rmin) / (double)(nr);
+  for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin + lin_dr * (ir + 0.5);
+
+  nmu = _nmu;
+  mumax = _mumax;
+  mumin = _mumin;
+
+  mucen.assign(nmu, 0.0);
+  dmu = (mumax - mumin) / (double)nmu;
+  for(int imu = 0; imu < nmu; imu++) mucen[imu] = mumin + (imu + 0.5) * dmu;
+}
+
+void correlation::set_spspbin(double _sperp_min, double _sperp_max, int _nsperp, double _spara_min, double _spara_max,
+                              int _nspara, double _lbox)
+{
+  /*
+  rmin < sperp < rmax
+  and
+  -rmax < spara < rmax  or  0 < spara < rmax
+  */
+
+  log_scale = false;
+  lbox = _lbox;
+
+  // r is required as well
+  rmin = _sperp_min / lbox;
+  rmax = _sperp_max / lbox;
+  rmin2 = rmin * rmin;
+  rmax2 = rmax * rmax;
+
+  nsperp = _nsperp;
+  sperp_min = rmin;
+  sperp_max = rmax;
+  dsperp = (sperp_max - sperp_min) / (double)(nsperp);
+  sperpcen.assign(nsperp, 0.0);
+  for(int ir = 0; ir < nsperp; ir++) sperpcen[ir] = sperp_min + dsperp * (ir + 0.5);
+
+  nspara = _nspara;
+  spara_min = _spara_min / lbox;
+  spara_max = _spara_max / lbox;
+  dspara = (spara_max - spara_min) / (double)(nspara);
+  sparacen.assign(nspara, 0.0);
+  for(int ir = 0; ir < nspara; ir++) sparacen[ir] = spara_min + dspara * (ir + 0.5);
+}
+
 template <typename T>
 int correlation::get_r_index(T r)
 {
   if(r < rmin || r >= rmax) return -1;
-  if(log_scale) return floor(log(r / rmin) / logratio);
-  else return floor((r - rmin) / lin_dr);
+  if(log_scale) return std::floor(log(r / rmin) / logratio);
+  else return std::floor((r - rmin) / lin_dr);
   return -1;
 }
 
@@ -199,23 +291,42 @@ template <typename T>
 int correlation::get_r2_index(T r2)
 {
   if(r2 < rmin2 || r2 >= rmax2) return -1;
-  if(log_scale) return floor(log(r2 / rmin2) / logratio2);
-  else return floor((std::sqrt(r2) - rmin) / lin_dr);
+  if(log_scale) return std::floor(log(r2 / rmin2) / logratio2);
+  else return std::floor((std::sqrt(r2) - rmin) / lin_dr);
   return -1;
 }
 
 template <typename T>
 int correlation::get_ir_form_dr(T dx, T dy, T dz)
 {
+  /*
   dx = (dx > 0.5 ? dx - 1.e0 : dx);
   dy = (dy > 0.5 ? dy - 1.e0 : dy);
   dz = (dz > 0.5 ? dz - 1.e0 : dz);
   dx = (dx < -0.5 ? dx + 1.e0 : dx);
   dy = (dy < -0.5 ? dy + 1.e0 : dy);
   dz = (dz < -0.5 ? dz + 1.e0 : dz);
+  */
+  dx -= std::nearbyint(dx); // assumes unit box (Lbox = 1)
+  dy -= std::nearbyint(dy);
+  dz -= std::nearbyint(dz);
+
   const double dr2 = dx * dx + dy * dy + dz * dz;
   int ir = get_r2_index(dr2);
   return ir;
+}
+
+template <typename T>
+int correlation::get_imu_form_dr(T dx, T dy, T dz)
+{
+  dx -= std::nearbyint(dx);
+  dy -= std::nearbyint(dy);
+  dz -= std::nearbyint(dz);
+  const double dr2 = dx * dx + dy * dy + dz * dz;
+  double mu = dz / std::sqrt(dr2);
+  // if(!full_angle) mu = std::abs(mu);
+  int imu = std::floor((mu - mumin) / dmu);
+  return (imu >= 0 && imu < nmu) ? imu : -1;
 }
 
 template <typename T>
@@ -614,6 +725,18 @@ void correlation::calc_xi(T &grp1, T &grp2)
 }
 
 template <typename T>
+void correlation::calc_xi_smu(T &grp)
+{
+  calc_xi_smu_impl(grp);
+}
+
+template <typename T>
+void correlation::calc_xi_spsp(T &grp)
+{
+  calc_xi_spsp_impl(grp);
+}
+
+template <typename T>
 void correlation::calc_xi_ifft(T &mesh, T &weight)
 {
   if(jk_block > 1) calc_xi_jk_ifft_impl(mesh, weight);
@@ -634,7 +757,7 @@ void correlation::calc_xi_ifft(T &mesh1, T &mesh2, T &weight)
 
 template <typename G, typename C>
 std::vector<double> correlation::calc_pair(const double w, G &grp, C &cell_list, int ncx, int ncy, int ncz,
-                                           const bool symmetry, const std::string label)
+                                           const std::string label)
 {
   const int nc3 = ncx * ncy * ncz;
   int nthread = omp_get_num_threads();
@@ -667,6 +790,8 @@ std::vector<double> correlation::calc_pair(const double w, G &grp, C &cell_list,
 
               for(int ii : clist) {
                 for(int jj : nlist) {
+
+                  if(cell_id == ncell_id && ii == jj) continue;
 
                   if(symmetry) {
                     if(cell_id > ncell_id) continue;
@@ -767,9 +892,245 @@ std::vector<double> correlation::calc_pair(const double w, G &grp1, G &grp2, C &
   return thr_pair;
 }
 
+template <typename G, typename C>
+std::vector<double> correlation::calc_pair_smu(const double w, G &grp, C &cell_list, int ncx, int ncy, int ncz,
+                                               const std::string label)
+{
+  const int nc3 = ncx * ncy * ncz;
+  int nthread = omp_get_num_threads();
+  int ithread = omp_get_thread_num();
+  uint64_t progress = 0;
+  uint64_t progress_thread = nc3 / nthread;
+  uint64_t progress_div = 1 + progress_thread / 200;
+
+  std::vector<double> thr_pair_smu(nr * nmu, 0.0); // [ir,imu]
+
+#pragma omp for collapse(3) schedule(dynamic)
+  for(int ix = 0; ix < ncx; ix++) {
+    for(int iy = 0; iy < ncy; iy++) {
+      for(int iz = 0; iz < ncz; iz++) {
+
+        const int cell_id = iz + ncz * (iy + ncy * ix);
+        const auto &clist = cell_list[cell_id];
+
+#pragma omp unroll
+        for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+          for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+            for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+              const int nix = ((ix + jx) + ncx) % ncx;
+              const int niy = ((iy + jy) + ncy) % ncy;
+              const int niz = ((iz + jz) + ncz) % ncz;
+
+              const int ncell_id = niz + ncz * (niy + ncy * nix);
+              const auto &nlist = cell_list[ncell_id];
+
+              for(int ii : clist) {
+                for(int jj : nlist) {
+
+                  if(cell_id == ncell_id && ii == jj) continue;
+
+                  if(symmetry) {
+                    if(cell_id > ncell_id) continue;
+                    if(cell_id == ncell_id && ii >= jj) continue;
+                  }
+
+                  double dx = grp[jj].xpos - grp[ii].xpos;
+                  double dy = grp[jj].ypos - grp[ii].ypos;
+                  double dz = grp[jj].zpos - grp[ii].zpos;
+
+                  const int ir = get_ir_form_dr(dx, dy, dz);
+                  const int imu = get_imu_form_dr(dx, dy, dz);
+
+                  if(ir >= 0 && ir < nr) {
+                    if(imu >= 0 && imu < nmu) {
+                      auto idx = imu + nmu * ir;
+                      thr_pair_smu[idx] += w;
+                    } // imu
+                  } // ir
+                }
+              }
+            }
+          }
+        } // dx, dy, dz
+
+        if(ithread == 0) {
+          progress++;
+          if(progress % progress_div == 0) {
+            std::cerr << "\r\033[2K " << label << " (s,mu) : " << (double)100.0 * progress / (double)progress_thread
+                      << " [%]";
+          }
+        }
+      }
+    }
+  } // ix, iy, iz
+
+  if(ithread == 0) std::cerr << std::endl;
+  return thr_pair_smu;
+}
+
+template <typename G, typename C>
+std::vector<double> correlation::calc_pair_smu(const double w, G &grp1, G &grp2, C &cell_list1, C &cell_list2, int ncx,
+                                               int ncy, int ncz, const std::string label)
+{
+  /*
+   allways symmetry is false
+  */
+  const int nc3 = ncx * ncy * ncz;
+  int nthread = omp_get_num_threads();
+  int ithread = omp_get_thread_num();
+  uint64_t progress = 0;
+  uint64_t progress_thread = nc3 / nthread;
+  uint64_t progress_div = 1 + progress_thread / 200;
+
+  std::vector<double> thr_pair_smu(nr * nmu, 0.0); // [ir,imu]
+
+#pragma omp for collapse(3) schedule(dynamic)
+  for(int ix = 0; ix < ncx; ix++) {
+    for(int iy = 0; iy < ncy; iy++) {
+      for(int iz = 0; iz < ncz; iz++) {
+
+        const int cell_id = iz + ncz * (iy + ncy * ix);
+        const auto &clist = cell_list1[cell_id];
+
+#pragma omp unroll
+        for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+          for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+            for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+              const int nix = ((ix + jx) + ncx) % ncx;
+              const int niy = ((iy + jy) + ncy) % ncy;
+              const int niz = ((iz + jz) + ncz) % ncz;
+
+              const int ncell_id = niz + ncz * (niy + ncy * nix);
+              const auto &nlist = cell_list2[ncell_id];
+
+              for(int ii : clist) {
+                for(int jj : nlist) {
+                  double dx = grp2[jj].xpos - grp1[ii].xpos;
+                  double dy = grp2[jj].ypos - grp1[ii].ypos;
+                  double dz = grp2[jj].zpos - grp1[ii].zpos;
+
+                  const int ir = get_ir_form_dr(dx, dy, dz);
+                  const int imu = get_imu_form_dr(dx, dy, dz);
+
+                  if(ir >= 0 && ir < nr) {
+                    if(imu >= 0 && imu < nmu) {
+                      auto idx = imu + nmu * ir;
+                      thr_pair_smu[idx] += w;
+                    } // imu
+                  } // ir
+                }
+              }
+            }
+          }
+        } // dx, dy, dz
+
+        if(ithread == 0) {
+          progress++;
+          if(progress % progress_div == 0) {
+            std::cerr << "\r\033[2K " << label << " (s,mu) : " << (double)100.0 * progress / (double)progress_thread
+                      << " [%]";
+          }
+        }
+      }
+    }
+  } // ix, iy, iz
+
+  if(ithread == 0) std::cerr << std::endl;
+  return thr_pair_smu;
+}
+
+template <typename G, typename C>
+std::vector<double> correlation::calc_pair_spsp(const double w, G &grp, C &cell_list, int ncx, int ncy, int ncz,
+                                                const std::string label)
+{
+  const int nc3 = ncx * ncy * ncz;
+  int nthread = omp_get_num_threads();
+  int ithread = omp_get_thread_num();
+  uint64_t progress = 0;
+  uint64_t progress_thread = nc3 / nthread;
+  uint64_t progress_div = 1 + progress_thread / 200;
+
+  std::vector<double> thr_pair_spsp(nsperp * nspara, 0.0); // [iperp,ipara]
+
+#pragma omp for collapse(3) schedule(dynamic)
+  for(int ix = 0; ix < ncx; ix++) {
+    for(int iy = 0; iy < ncy; iy++) {
+      for(int iz = 0; iz < ncz; iz++) {
+
+        const int cell_id = iz + ncz * (iy + ncy * ix);
+        const auto &clist = cell_list[cell_id];
+
+#pragma omp unroll
+        for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+          for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+            for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+              const int nix = ((ix + jx) + ncx) % ncx;
+              const int niy = ((iy + jy) + ncy) % ncy;
+              const int niz = ((iz + jz) + ncz) % ncz;
+
+              const int ncell_id = niz + ncz * (niy + ncy * nix);
+              const auto &nlist = cell_list[ncell_id];
+
+              for(int ii : clist) {
+                for(int jj : nlist) {
+
+                  if(cell_id == ncell_id && ii == jj) continue;
+
+                  if(symmetry) {
+                    if(cell_id > ncell_id) continue;
+                    if(cell_id == ncell_id && ii >= jj) continue;
+                  }
+
+                  double dx = grp[jj].xpos - grp[ii].xpos;
+                  double dy = grp[jj].ypos - grp[ii].ypos;
+                  double dz = grp[jj].zpos - grp[ii].zpos;
+
+                  dx -= std::nearbyint(dx);
+                  dy -= std::nearbyint(dy);
+                  dz -= std::nearbyint(dz);
+
+                  const double spara = dz;                           //  r * mu;
+                  const double sperp = std::sqrt(dx * dx + dy * dy); //  sqrt(r^2 - spara^2);
+
+                  // const int iperp = static_cast<int>((sperp - sperp_min) / dsperp);
+                  // const int ipara = static_cast<int>((spara - spara_min) / dspara);
+                  const int iperp = std::floor((sperp - sperp_min) / dsperp);
+                  const int ipara = std::floor((spara - spara_min) / dspara);
+
+                  if(iperp >= 0 && iperp < nsperp) {
+                    if(ipara >= 0 && ipara < nspara) {
+                      auto idx = ipara + nspara * iperp;
+                      thr_pair_spsp[idx] += w;
+                    } // iperp
+                  } // ipara
+                }
+              }
+            }
+          }
+        } // dx, dy, dz
+
+        if(ithread == 0) {
+          progress++;
+          if(progress % progress_div == 0) {
+            std::cerr << "\r\033[2K " << label
+                      << " (sperp,spara) : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+          }
+        }
+      }
+    }
+  } // ix, iy, iz
+
+  if(ithread == 0) std::cerr << std::endl;
+  return thr_pair_spsp;
+}
+
 template <typename T>
 void correlation::calc_xi_impl(T &grp)
 {
+  symmetry = true;
   uint64_t ngrp = grp.size();
   dd_pair.assign(nr, 0.0);
   xi.assign(nr, 0.0);
@@ -801,8 +1162,7 @@ void correlation::calc_xi_impl(T &grp)
       std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
                 << std::endl;
 
-    const bool symmetry = true;
-    auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, symmetry, "DD");
+    auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
 
 #pragma omp critical
     {
@@ -814,7 +1174,9 @@ void correlation::calc_xi_impl(T &grp)
 
   // double V_box = lbox * lbox * lbox;
   double V_box = 1.0;
-  double N_pairs = (double)ngrp * (ngrp - 1) / 2.0;
+  double N_pairs = (double)ngrp * (ngrp - 1);
+  if(symmetry) N_pairs *= 0.5;
+
   double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
 
   for(int ir = 0; ir < nr; ir++) {
@@ -823,6 +1185,149 @@ void correlation::calc_xi_impl(T &grp)
     double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
     double norm = N_pairs * shell_volume / V_box;
     xi[ir] = dd_pair[ir] / norm - 1.0;
+  }
+}
+
+template <typename T>
+void correlation::calc_xi_smu_impl(T &grp)
+{
+  symmetry = true;
+
+  uint64_t ngrp = grp.size();
+  dd_pair.assign(nr * nmu, 0.0);
+  xi.assign(nr * nmu, 0.0);
+
+  /* Here only the global box size */
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int nc3 = ncx * ncy * ncz;
+
+  std::vector<std::vector<int>> cell_list(nc3);
+
+  for(uint64_t i = 0; i < ngrp; i++) {
+    const int ix = get_cell_index(grp[i].xpos, ncx);
+    const int iy = get_cell_index(grp[i].ypos, ncy);
+    const int iz = get_cell_index(grp[i].zpos, ncz);
+    const int cell_id = iz + ncz * (iy + ncy * ix);
+    cell_list[cell_id].push_back(i);
+  }
+
+#pragma omp parallel
+  {
+
+    int nthread = omp_get_num_threads();
+    int ithread = omp_get_thread_num();
+    uint64_t progress_thread = nc3 / nthread;
+
+    if(ithread == 0)
+      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+                << std::endl;
+
+    auto thr_dd_pair_smu = calc_pair_smu(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
+
+#pragma omp critical
+    {
+      for(int ir = 0; ir < nr * nmu; ++ir) { // not nr
+        dd_pair[ir] += thr_dd_pair_smu[ir];
+      }
+    } // omp critical
+  } // omp parallel
+
+  // double V_box = lbox * lbox * lbox;
+  double V_box = 1.0;
+  double N_pairs = (double)ngrp * (ngrp - 1);
+  if(symmetry) N_pairs *= 0.5;
+
+  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
+
+  for(int ir = 0; ir < nr; ir++) {
+    double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
+    double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
+    r_low = r_low * r_low * r_low;
+    r_high = r_high * r_high * r_high;
+    double shell_volume = (4.0 / 3.0) * M_PI * (r_high - r_low);
+
+    for(int imu = 0; imu < nmu; imu++) {
+      double mu_low = mumin + imu * dmu;
+      double mu_high = mumin + (imu + 1) * dmu;
+      double mu_factor = (mu_high - mu_low) * 0.5; // 0.5=1/(cos_theta_max-cos_theta_min)=1/(1-(-1))
+      double bin_volume = shell_volume * mu_factor;
+
+      double norm = N_pairs * bin_volume / V_box;
+      int idx = imu + nmu * ir;
+      xi[idx] = dd_pair[idx] / norm - 1.0;
+    }
+  }
+}
+
+template <typename T>
+void correlation::calc_xi_spsp_impl(T &grp)
+{
+  symmetry = true;
+
+  uint64_t ngrp = grp.size();
+  dd_pair.assign(nsperp * nspara, 0.0);
+  xi.assign(nsperp * nspara, 0.0);
+
+  /* Here only the global box size */
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int nc3 = ncx * ncy * ncz;
+
+  std::vector<std::vector<int>> cell_list(nc3);
+
+  for(uint64_t i = 0; i < ngrp; i++) {
+    const int ix = get_cell_index(grp[i].xpos, ncx);
+    const int iy = get_cell_index(grp[i].ypos, ncy);
+    const int iz = get_cell_index(grp[i].zpos, ncz);
+    const int cell_id = iz + ncz * (iy + ncy * ix);
+    cell_list[cell_id].push_back(i);
+  }
+
+#pragma omp parallel
+  {
+
+    int nthread = omp_get_num_threads();
+    int ithread = omp_get_thread_num();
+    uint64_t progress_thread = nc3 / nthread;
+
+    if(ithread == 0)
+      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+                << std::endl;
+
+    auto thr_dd_pair_spsp = calc_pair_spsp(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
+
+#pragma omp critical
+    {
+      for(int ir = 0; ir < nsperp * nspara; ++ir) { // not nr
+        dd_pair[ir] += thr_dd_pair_spsp[ir];
+      }
+    } // omp critical
+  } // omp parallel
+
+  // double V_box = lbox * lbox * lbox;
+  double V_box = 1.0;
+  double N_pairs = (double)ngrp * (ngrp - 1);
+  if(symmetry) N_pairs *= 0.5;
+
+  for(int iperp = 0; iperp < nsperp; iperp++) {
+    double sperp_low = sperp_min + iperp * dsperp;
+    double sperp_high = sperp_min + (iperp + 1) * dsperp;
+    double sperp_mid = 0.5 * (sperp_low + sperp_high);
+    double dsperp_bin = sperp_high - sperp_low;
+
+    for(int ipara = 0; ipara < nspara; ipara++) {
+      double spara_low = spara_min + ipara * dspara;
+      double spara_high = spara_min + (ipara + 1) * dspara;
+      double dspara_bin = spara_high - spara_low;
+
+      double bin_volume = 2.0 * M_PI * sperp_mid * dsperp_bin * dspara_bin;
+      double norm = N_pairs * bin_volume / V_box;
+      int idx = ipara + nspara * iperp;
+      xi[idx] = dd_pair[idx] / norm - 1.0;
+    }
   }
 }
 
@@ -901,6 +1406,8 @@ void correlation::calc_xi_LS_impl(T &grp)
 {
   /* Landy SD, Szalay AS 1993, Apj */
   /* Advice by chatgpt */
+  symmetry = true;
+
   uint64_t ngrp = grp.size();
   uint64_t nrand = ngrp * nrand_factor;
 
@@ -949,9 +1456,8 @@ void correlation::calc_xi_LS_impl(T &grp)
       std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
                 << std::endl;
 
-    const bool symmetry = true;
-    auto thr_rr_pair = calc_pair(1.0, rand, cell_list_rand, ncx, ncy, ncz, symmetry, "RR");
-    auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, symmetry, "DD");
+    auto thr_rr_pair = calc_pair(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+    auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
     auto thr_dr_pair = calc_pair(0.5, grp, rand, cell_list, cell_list_rand, ncx, ncy, ncz, "DR");
 
 #pragma omp critical
@@ -1304,6 +1810,8 @@ void correlation::calc_jk_xi_error()
 template <typename T>
 void correlation::resample_jk(T &grp)
 {
+  symmetry = true;
+
   uint64_t ngrp = grp.size();
 
   /* Here only the global box size */
@@ -1342,8 +1850,7 @@ void correlation::resample_jk(T &grp)
         std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
                   << std::endl;
 
-      const bool symmetry = true;
-      auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, symmetry, "DD");
+      auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
 
 #pragma omp critical
       {
@@ -1511,9 +2018,8 @@ void correlation::resample_jk_LS(T &grp, T &rand)
         std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
                   << std::endl;
 
-      const bool symmetry = true;
-      auto thr_rr_pair = calc_pair(1.0, rand, cell_list_rand, ncx, ncy, ncz, symmetry, "RR");
-      auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, symmetry, "DD");
+      auto thr_rr_pair = calc_pair(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+      auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
       auto thr_dr_pair = calc_pair(0.5, grp, rand, cell_list, cell_list_rand, ncx, ncy, ncz, "DR");
 
 #pragma omp critical
@@ -2276,6 +2782,124 @@ void correlation::output_xi(std::string filename, T &weight)
       fout << " " << weight[ir] << "\n";
     }
   }
+  fout.flush();
+  fout.close();
+  std::cout << "output to " << filename << std::endl;
+}
+
+void correlation::output_xi_smu(std::string filename)
+{
+  std::ofstream fout(filename);
+  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
+
+  if(jk_block <= 1) {
+    if(use_LS) {
+      fout << "# r[Mpc/h] mu xi DD DR RR" << std::endl;
+      for(int ir = 0; ir < nr; ir++) {
+        double rad = rcen[ir] * lbox;
+        for(int imu = 0; imu < nmu; imu++) {
+          auto idx = imu + nmu * ir;
+          fout << std::scientific << std::setprecision(10) << rad << " " << mucen[imu] << " " << xi[idx] << " "
+               << dd_pair[idx] << " " << dr_pair[idx] << " " << rr_pair[idx] << "\n";
+        } // imu
+      } // ir
+    } else {
+      if(dd_pair.size() > 0) {
+        fout << "# r[Mpc/h] mu xi DD" << std::endl;
+        for(int ir = 0; ir < nr; ir++) {
+          double rad = rcen[ir] * lbox;
+          for(int imu = 0; imu < nmu; imu++) {
+            auto idx = imu + nmu * ir;
+            fout << std::scientific << std::setprecision(10) << rad << " " << mucen[imu] << " " << xi[idx] << " "
+                 << dd_pair[idx] << "\n";
+          } // imu
+        } // ir
+      } else {
+        fout << "# r[Mpc/h] mu xi" << std::endl;
+        for(int ir = 0; ir < nr; ir++) {
+          double rad = rcen[ir] * lbox;
+          for(int imu = 0; imu < nmu; imu++) {
+            auto idx = imu + nmu * ir;
+            fout << std::scientific << std::setprecision(10) << rad << " " << mucen[imu] << " " << xi[idx] << "\n";
+          } // imu
+        } // ir
+      }
+    }
+  } else {
+    fout << "# r[Mpc/h] mu xi_ave SD SE block1 block2 block3 ..." << std::endl;
+    for(int ir = 0; ir < nr; ir++) {
+      double rad = rcen[ir] * lbox;
+      for(int imu = 0; imu < nmu; imu++) {
+        auto idx = imu + nmu * ir;
+        fout << std::scientific << std::setprecision(10) << rad << " " << mucen[imu] << " " << xi_ave[idx] << " "
+             << xi_sd[idx] << " " << xi_se[idx];
+        for(int i = 0; i < nblock; i++) fout << std::scientific << std::setprecision(10) << " " << xi_jk[i][idx];
+        fout << "\n";
+      } // imu
+    } // ir
+  }
+
+  fout.flush();
+  fout.close();
+  std::cout << "output to " << filename << std::endl;
+}
+
+void correlation::output_xi_spsp(std::string filename)
+{
+  std::ofstream fout(filename);
+  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
+
+  if(jk_block <= 1) {
+    if(use_LS) {
+      fout << "# s_perp[Mpc/h] s_para[Mpc/h] xi DD DR RR" << std::endl;
+      for(int iperp = 0; iperp < nsperp; iperp++) {
+        for(int ipara = 0; ipara < nspara; ipara++) {
+          auto spara = sparacen[ipara] * lbox;
+          auto sperp = sperpcen[iperp] * lbox;
+          auto idx = ipara + nspara * iperp;
+          fout << std::scientific << std::setprecision(10) << sperp << " " << spara << " " << xi[idx] << " "
+               << dd_pair[idx] << " " << dr_pair[idx] << " " << rr_pair[idx] << "\n";
+        }
+      }
+    } else {
+      if(dd_pair.size() > 0) {
+        fout << "# s_perp[Mpc/h] s_para[Mpc/h] xi DD" << std::endl;
+        for(int iperp = 0; iperp < nsperp; iperp++) {
+          for(int ipara = 0; ipara < nspara; ipara++) {
+            auto spara = sparacen[ipara] * lbox;
+            auto sperp = sperpcen[iperp] * lbox;
+            auto idx = ipara + nspara * iperp;
+            fout << std::scientific << std::setprecision(10) << sperp << " " << spara << " " << xi[idx] << " "
+                 << dd_pair[idx] << "\n";
+          }
+        }
+      } else {
+        fout << "# s_perp[Mpc/h] s_para[Mpc/h] xi" << std::endl;
+        for(int iperp = 0; iperp < nsperp; iperp++) {
+          for(int ipara = 0; ipara < nspara; ipara++) {
+            auto spara = sparacen[ipara] * lbox;
+            auto sperp = sperpcen[iperp] * lbox;
+            auto idx = ipara + nspara * iperp;
+            fout << std::scientific << std::setprecision(10) << sperp << " " << spara << " " << xi[idx] << "\n";
+          }
+        }
+      }
+    }
+  } else {
+    fout << "# s_perp[Mpc/h] s_para[Mpc/h] xi_ave SD SE block1 block2 ..." << std::endl;
+    for(int iperp = 0; iperp < nsperp; iperp++) {
+      for(int ipara = 0; ipara < nspara; ipara++) {
+        auto spara = sparacen[ipara] * lbox;
+        auto sperp = sperpcen[iperp] * lbox;
+        auto idx = ipara + nspara * iperp;
+        fout << std::scientific << std::setprecision(10) << sperp << " " << spara << " " << xi_ave[idx] << " "
+             << xi_sd[idx] << " " << xi_se[idx];
+        for(int i = 0; i < nblock; i++) fout << std::scientific << std::setprecision(10) << " " << xi_jk[i][idx];
+        fout << "\n";
+      }
+    }
+  }
+
   fout.flush();
   fout.close();
   std::cout << "output to " << filename << std::endl;
