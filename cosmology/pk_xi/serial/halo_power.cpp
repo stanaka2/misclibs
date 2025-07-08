@@ -38,10 +38,8 @@ int main(int argc, char **argv)
   halos.print_header();
   halos.scheme = opt.p_assign;
 
-  std::vector<float> pos;
-  std::vector<float> mvir;
-
-  halos.load_halo_pm(pos, mvir, opt.input_prefix, opt.h5_suffix);
+  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
+  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
 
   int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
   int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));

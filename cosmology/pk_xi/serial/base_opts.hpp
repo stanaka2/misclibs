@@ -22,6 +22,10 @@ public:
   int p_assign = 3;
   bool no_shotnoise = false;
 
+  bool do_RSD = false;
+  bool do_Gred = false;
+  std::string los_axis = "z"; // line-of-sight axis for RSD and Gred
+
   bool verbose = false;
 
   /* constants arguments */
@@ -90,6 +94,10 @@ protected:
     app.add_option("--p_assign", p_assign, "particle assign type")->check(CLI::IsMember({1, 2, 3}))->capture_default_str();
     app.add_flag("--no_shotnoise", no_shotnoise, "disable shot noise correction")->capture_default_str();
 
+    app.add_flag("--RSD", do_RSD, "Apply redshift-space distortion (RSD) shift to positions")->capture_default_str();
+    app.add_flag("--Gred", do_Gred, "Apply gravitational redshift shift to positions")->capture_default_str();
+    app.add_option("--los_axis", los_axis, "Line-of-sight axis (x, y, or z) for applying RSD and gravitational redshift shifts")
+        ->check(CLI::IsMember({"x", "y", "z"}))->capture_default_str();
     app.add_flag("-v,--verbose", verbose, "verbose output");
     // clang-format on
   }

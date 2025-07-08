@@ -7,8 +7,8 @@ from Corrfunc.theory import DDsmu
 file_path = "/mnt/work5/nbody/grav_pot/GINKAKU/work/l1000/n2000/halo_props/S003/"
 file_prefix = "halos"
 
-file_path = "/mnt/work5/stanaka/test/uniform/halos/"
-file_prefix = "halos_uniform"
+# file_path = "/mnt/work5/stanaka/test/uniform/halos/"
+# file_prefix = "halos_uniform"
 
 file_base = file_path + file_prefix + ".0.h5"
 
@@ -22,11 +22,17 @@ for i in data["Header"].attrs.keys():
 
 
 nfiles = data["Header"].attrs["Nfile"]
+boxsize = data["Header"].attrs["BoxSize"]
+a = data["Header"].attrs["a"]
+H0 = 100.0
+
 
 x = []
 y = []
 z = []
+vz = []
 mvir = []
+level = []
 
 for ifile in range(nfiles):
     data = h5py.File(file_path + f"{file_prefix}.{ifile:d}.h5", "r")
@@ -34,20 +40,28 @@ for ifile in range(nfiles):
     _x = data["Halos"]["pos"][:, 0]
     _y = data["Halos"]["pos"][:, 1]
     _z = data["Halos"]["pos"][:, 2]
+    _vz = data["Halos"]["vel"][:, 2]
     _m = data["Halos"]["Mvir"]
+    _level = data["Halos"]["child_level"]
 
     x.append(_x)
     y.append(_y)
     z.append(_z)
+    vz.append(_vz)
     mvir.append(_m)
+    level.append(_level)
 
 x = np.hstack(x)
 y = np.hstack(y)
 z = np.hstack(z)
+vz = np.hstack(vz)
 mvir = np.hstack(mvir)
+level = np.hstack(level)
+
+z = z + vz / (a * H0)
+z = z % boxsize
 
 # Setup the problem for wp
-boxsize = data["Header"].attrs["BoxSize"]
 pimax = 40.0
 # nthreads = 4
 nthreads = 60
@@ -55,27 +69,29 @@ nthreads = 60
 
 # Setup the bins
 # rmin = 1.0
-rmin = 1.0e-4
+rmin = 1.0e-3
 rmax = 150.0
 nbins = 100
 
 mumax = 1.0
-mu_nbins = 100
+mu_nbins = 200
 
 mmin = 1e13
 mmax = 1e15
 
-mask = (mvir >= mmin) & (mvir < mmax)
+# mask = ((mvir >= mmin) & (mvir < mmax) & (level == 0))
+mask = ((mvir >= mmin) & (mvir < mmax))
 x = x[mask]
 y = y[mask]
 z = z[mask]
 
 ngrp = len(x)
+print(f"Number of halos in the group: {ngrp} ~ {ngrp**(1.0/3.0):.1f}^3 ")
 
 # for RR data
 
 rng = np.random.default_rng(seed=100)
-nrand_factor = 2
+nrand_factor = 1
 nrand = nrand_factor * ngrp
 
 rx = rng.uniform(0.0, boxsize, nrand).astype(np.float32)
@@ -110,7 +126,7 @@ mucen = 0.5 * (mubins[:-1] + mubins[1:])
 mucen_tile = np.tile(mucen, nbins)
 
 output_file = "corrfunc_DDsmu.dat"
-header = "# rcen mucen xi npairs"
+header = "rcen mucen xi npairs"
 
 np.savetxt(output_file,
            np.column_stack([rcen_tile, mucen_tile, xi2D, DDsmu_results['npairs']]),

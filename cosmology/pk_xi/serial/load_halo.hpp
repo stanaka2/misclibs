@@ -43,25 +43,13 @@ public:
   void read_data_field(hid_t, const char *, T *);
 
   void read_header(std::string);
-  void read_data(std::string);
-
-  void read_pos_data(std::string);
-  void read_mvir_data(std::string);
-  void read_rvir_data(std::string);
-
-  void read_pot_data(std::string);
-  void read_pot_tree_data(std::string);
-  void read_pot_pm_data(std::string);
-  void read_level_data(std::string);
 
   template <typename T>
-  void load_halo_pos(T &, std::string, std::string);
+  hid_t check_h5_type(hid_t);
   template <typename T>
-  void load_halo_pm(T &, T &, std::string, std::string);
-  template <typename T, typename U>
-  void load_halo_pml(T &, T &, U &, std::string, std::string);
-  template <typename T, typename U>
-  void load_halo_pmpl(T &, T &, T &, U &, std::string, std::string);
+  std::vector<T> read_halo_dataset(const std::string &, const std::string &, const std::string &);
+  template <typename T>
+  std::vector<T> load_halo_field(const std::string &, const std::string &, const std::string &);
 };
 
 void load_halos::check_scheme() const
@@ -81,22 +69,6 @@ void load_halos::check_scheme() const
     std::cerr << "Error: scheme is UNKNOWN (value = " << scheme << ")" << std::endl;
     exit(EXIT_FAILURE);
   }
-}
-
-void load_halos::read_data(std::string filename)
-{
-  // update header by this file
-  read_header(filename);
-  read_pos_data(filename);
-  read_mvir_data(filename);
-  read_rvir_data(filename);
-
-  /*
-  read_pot_data(filename);
-  read_pot_tree_data(filename);
-  read_pot_pm_data(filename);
-  */
-  read_level_data(filename);
 }
 
 void load_halos::print_header()
@@ -188,203 +160,92 @@ void load_halos::read_header(std::string filename)
   assert(H5Fclose(hfid) >= 0); // Close the file.
 }
 
-void load_halos::read_pos_data(std::string filename)
+template <typename T>
+hid_t load_halos::check_h5_type(hid_t h5_datatype_id)
 {
-  pos.resize(nhalos_file * 3);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "pos", pos.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
-}
-
-void load_halos::read_mvir_data(std::string filename)
-{
-  mvir.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "Mvir", mvir.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
-}
-
-void load_halos::read_rvir_data(std::string filename)
-{
-  rvir.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "Rvir", rvir.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
-}
-
-void load_halos::read_pot_data(std::string filename)
-{
-  pot.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "pot_total", pot.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
-}
-
-void load_halos::read_pot_tree_data(std::string filename)
-{
-  pot_tree.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "pot_tree", pot_tree.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
-}
-
-void load_halos::read_pot_pm_data(std::string filename)
-{
-  pot_pm.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "pot_pm", pot_pm.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
-}
-
-void load_halos::read_level_data(std::string filename)
-{
-  level.resize(nhalos_file);
-  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-  assert(hfid >= 0);
-  hid_t hgid = H5Gopen(hfid, "/Halos", H5P_DEFAULT);
-  read_data_field(hgid, "child_level", level.data());
-  assert(H5Gclose(hgid) >= 0); // Close the group.
-  assert(H5Fclose(hfid) >= 0); // Close the file.
+  H5T_class_t type_class = H5Tget_class(h5_datatype_id);
+  size_t type_size = H5Tget_size(h5_datatype_id);
+  if constexpr(std::is_same_v<T, float>) {
+    assert(type_class == H5T_FLOAT && type_size == sizeof(float));
+    return H5T_NATIVE_FLOAT;
+  } else if constexpr(std::is_same_v<T, double>) {
+    assert(type_class == H5T_FLOAT && type_size == sizeof(double));
+    return H5T_NATIVE_DOUBLE;
+  } else if constexpr(std::is_same_v<T, int>) {
+    assert(type_class == H5T_INTEGER && type_size == sizeof(int));
+    return H5T_NATIVE_INT;
+  } else if constexpr(std::is_same_v<T, uint>) {
+    assert(type_class == H5T_INTEGER && type_size == sizeof(uint));
+    return H5T_NATIVE_UINT;
+  } else if constexpr(std::is_same_v<T, int64_t>) {
+    assert(type_class == H5T_INTEGER && type_size == sizeof(int64_t));
+    return H5T_NATIVE_INT64;
+  } else if constexpr(std::is_same_v<T, uint64_t>) {
+    assert(type_class == H5T_INTEGER && type_size == sizeof(uint64_t));
+    return H5T_NATIVE_UINT64;
+  } else if constexpr(std::is_same_v<T, long long int>) {
+    assert(type_class == H5T_INTEGER && type_size == sizeof(long long int));
+    return H5T_NATIVE_INT64;
+  } else if constexpr(std::is_same_v<T, unsigned long long>) {
+    assert(type_class == H5T_INTEGER && type_size == sizeof(unsigned long long));
+    return H5T_NATIVE_UINT64;
+  } else {
+    static_assert(!sizeof(T), "Unsupported type in HDF5 type checker");
+  }
 }
 
 template <typename T>
-void load_halos::load_halo_pos(T &in_pos, std::string input_prefix, std::string suffix)
+std::vector<T> load_halos::read_halo_dataset(const std::string &filename, const std::string &group_name,
+                                             const std::string &field_name)
 {
-  auto nhalos = nhalos_all;
+  herr_t status;
+  hid_t hfid = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+  assert(hfid >= 0);
+  hid_t hgid = H5Gopen(hfid, group_name.c_str(), H5P_DEFAULT);
+  assert(hgid >= 0);
+  hid_t hdid = H5Dopen(hgid, field_name.c_str(), H5P_DEFAULT);
+  assert(hdid >= 0);
 
-  in_pos.clear();
-  in_pos.reserve(nhalos * 3);
+  // check type
+  hid_t htid = H5Dget_type(hdid);
+  hid_t datatype = check_h5_type<T>(htid);
+  assert(H5Tclose(htid) >= 0);
 
-  for(int ifile = 0; ifile < nfile; ifile++) {
-    char cifile[128];
-    sprintf(cifile, ".%d", ifile);
-    std::string input_file = input_prefix + cifile + suffix;
-    read_data(input_file);
-    in_pos.insert(in_pos.end(), pos.begin(), pos.end());
-  }
-  assert(in_pos.size() == nhalos * 3);
+  // check shape
+  hid_t hsid = H5Dget_space(hdid);
+  assert(hsid >= 0);
+  hsize_t dims[2] = {0, 0};
+  int ndims = H5Sget_simple_extent_dims(hsid, dims, NULL);
+  assert(ndims >= 1);
+  assert(H5Sclose(hsid) >= 0);
 
-  pos.clear();
-  pos.shrink_to_fit();
+  size_t total_size = 1;
+  for(int d = 0; d < ndims; d++) total_size *= dims[d];
+
+  // allocate and read data
+  std::vector<T> data(total_size);
+  // read_data_field(hgid, field_name.c_str(), data.data());
+  //// hid_t hdid = H5Dopen(handle, name, H5P_DEFAULT);
+  status = H5Dread(hdid, datatype, H5S_ALL, H5S_ALL, H5P_DEFAULT, data.data());
+  assert(status >= 0);
+
+  assert(H5Dclose(hdid) >= 0);
+  assert(H5Gclose(hgid) >= 0);
+  assert(H5Fclose(hfid) >= 0);
+  return data;
 }
 
 template <typename T>
-void load_halos::load_halo_pm(T &in_pos, T &in_mvir, std::string input_prefix, std::string suffix)
+std::vector<T> load_halos::load_halo_field(const std::string &input_prefix, const std::string &suffix,
+                                           const std::string &field_name)
 {
-  auto nhalos = nhalos_all;
-  in_pos.clear();
-  in_mvir.clear();
-  in_pos.reserve(nhalos * 3);
-  in_mvir.reserve(nhalos);
-
+  std::vector<T> data;
   for(int ifile = 0; ifile < nfile; ifile++) {
-    char cifile[128];
+    char cifile[256];
     sprintf(cifile, ".%d", ifile);
     std::string input_file = input_prefix + cifile + suffix;
-    read_data(input_file);
-    in_pos.insert(in_pos.end(), pos.begin(), pos.end());
-    in_mvir.insert(in_mvir.end(), mvir.begin(), mvir.end());
+    auto chunk = read_halo_dataset<T>(input_file, "/Halos", field_name);
+    data.insert(data.end(), chunk.begin(), chunk.end());
   }
-  assert(in_pos.size() == nhalos * 3);
-  assert(in_mvir.size() == nhalos);
-
-  pos.clear();
-  pos.shrink_to_fit();
-  mvir.clear();
-  mvir.shrink_to_fit();
-}
-
-template <typename T, typename U>
-void load_halos::load_halo_pml(T &in_pos, T &in_mvir, U &in_level, std::string input_prefix, std::string suffix)
-{
-  auto nhalos = nhalos_all;
-
-  in_pos.clear();
-  in_mvir.clear();
-  in_level.clear();
-
-  in_pos.reserve(nhalos * 3);
-  in_mvir.reserve(nhalos);
-  in_level.reserve(nhalos);
-
-  for(int ifile = 0; ifile < nfile; ifile++) {
-    char cifile[128];
-    sprintf(cifile, ".%d", ifile);
-    std::string input_file = input_prefix + cifile + suffix;
-    read_data(input_file);
-    in_pos.insert(in_pos.end(), pos.begin(), pos.end());
-    in_mvir.insert(in_mvir.end(), mvir.begin(), mvir.end());
-    in_level.insert(in_level.end(), level.begin(), level.end());
-  }
-
-  assert(in_pos.size() == nhalos * 3);
-  assert(in_mvir.size() == nhalos);
-  assert(in_level.size() == nhalos);
-
-  pos.clear();
-  pos.shrink_to_fit();
-  mvir.clear();
-  mvir.shrink_to_fit();
-  level.clear();
-  level.shrink_to_fit();
-}
-
-template <typename T, typename U>
-void load_halos::load_halo_pmpl(T &in_pos, T &in_mvir, T &in_pot, U &in_level, std::string input_prefix,
-                                std::string suffix)
-{
-  auto nhalos = nhalos_all;
-
-  in_pos.clear();
-  in_mvir.clear();
-  in_pot.clear();
-  in_level.clear();
-
-  in_pos.reserve(nhalos * 3);
-  in_mvir.reserve(nhalos);
-  in_pot.reserve(nhalos);
-  in_level.reserve(nhalos);
-
-  for(int ifile = 0; ifile < nfile; ifile++) {
-    char cifile[128];
-    sprintf(cifile, ".%d", ifile);
-    std::string input_file = input_prefix + cifile + suffix;
-    read_data(input_file);
-    in_pos.insert(in_pos.end(), pos.begin(), pos.end());
-    in_mvir.insert(in_mvir.end(), mvir.begin(), mvir.end());
-    in_pot.insert(in_pot.end(), pot.begin(), pot.end());
-    in_level.insert(in_level.end(), level.begin(), level.end());
-  }
-
-  assert(in_pos.size() == nhalos * 3);
-  assert(in_mvir.size() == nhalos);
-  assert(in_pot.size() == nhalos);
-  assert(in_level.size() == nhalos);
-
-  pos.clear();
-  pos.shrink_to_fit();
-  mvir.clear();
-  mvir.shrink_to_fit();
-  pot.clear();
-  pot.shrink_to_fit();
-  level.clear();
-  level.shrink_to_fit();
+  return data;
 }

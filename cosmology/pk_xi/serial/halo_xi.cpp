@@ -85,6 +85,7 @@ int main(int argc, char **argv)
   halos.print_header();
 
   double lbox(halos.box_size);
+  float ascale(halos.a);
 
   if(0.5 * lbox < rmax) {
     std::cerr << "\n###############" << std::endl;
@@ -94,22 +95,34 @@ int main(int argc, char **argv)
     rmax = 0.5 * lbox;
   }
 
-  std::vector<float> pos;
-  std::vector<float> mvir;
-  std::vector<int> clevel;
-  halos.load_halo_pml(pos, mvir, clevel, opt.input_prefix, opt.h5_suffix);
-
   correlation cor;
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
-  cor.mmin = mvir_min;
-  cor.mmax = mvir_max;
   cor.jk_block = jk_block;
   cor.jk_level = jk_level;
   cor.use_LS = opt.use_LS;
   cor.jk_type = opt.jk_type;
   cor.nrand_factor = opt.nrand_factor;
 
-  auto grp = cor.set_halo_pml_group(pos, mvir, clevel, opt.clevel[0], opt.clevel[1]);
+  cor.Om = halos.Om;
+  cor.Ol = halos.Ol;
+
+  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
+  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
+  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
+  auto select_idx = cor.select_indices(mvir, mvir_min, mvir_max);
+  select_idx = cor.select_indices(clevel, opt.clevel[0], opt.clevel[1], select_idx);
+
+  auto grp = cor.set_base_grp(pos, select_idx);
+
+  if(opt.do_RSD) {
+    auto vel = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "vel");
+    cor.apply_RSD_shift(vel, ascale, opt.los_axis, select_idx, grp);
+  }
+
+  if(opt.do_Gred) {
+    auto pot = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pot_total");
+    cor.apply_Gred_shift(pot, ascale, opt.los_axis, select_idx, grp);
+  }
 
   cor.calc_xi(grp);
   cor.output_xi(opt.output_filename);

@@ -81,10 +81,15 @@ int main(int argc, char **argv)
   halos.scheme = opt.p_assign;
 
   double lbox(halos.box_size);
-  std::vector<float> pos;
-  std::vector<float> mvir;
-  std::vector<int> clevel;
-  halos.load_halo_pml(pos, mvir, clevel, opt.input_prefix, opt.h5_suffix);
+
+  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
+  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
+  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
+
+  correlation cor;
+
+  auto select_idx = cor.select_indices(mvir, mvir_min, mvir_max);
+  select_idx = cor.select_indices(clevel, opt.clevel[0], opt.clevel[1], select_idx);
 
   int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
   int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
@@ -92,19 +97,9 @@ int main(int argc, char **argv)
   std::vector<float> dens_mesh(nfft_tot);
   std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
 
-  /* halo number density filed */
-  /* halo selection */
   std::vector<float> ones(mvir.size(), 0.0);
-  for(size_t i = 0; i < mvir.size(); i++) {
-    if(opt.clevel[0] <= clevel[i] && clevel[i] <= opt.clevel[1]) {
-      if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
-    }
-  }
-
-  int64_t nhalo_select = 0;
-  for(size_t i = 0; i < ones.size(); i++) {
-    nhalo_select += ones[i];
-  }
+  for(auto i : select_idx) ones[i] = 1.0;
+  int64_t nhalo_select = select_idx.size();
 
   halo_assign_mesh(pos, ones, dens_mesh, nmesh, lbox, halos.scheme);
 
@@ -113,12 +108,10 @@ int main(int argc, char **argv)
   dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
   for(int64_t i = 0; i < nfft_tot; i++) dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
 
-  correlation cor;
+  //  correlation cor;
   cor.p = halos.scheme;
   cor.lbox = lbox;
   cor.nmesh = nmesh;
-  cor.mmin = mvir_min;
-  cor.mmax = mvir_max;
   cor.jk_block = jk_block;
   cor.jk_level = jk_level;
 

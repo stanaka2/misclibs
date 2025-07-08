@@ -97,7 +97,9 @@ int main(int argc, char **argv)
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
-  auto grp = cor.set_ptcl_pos_group(snap.pdata, sampling_rate);
+  auto select_idx = cor.select_indices_sampling(snap.pdata.size(), sampling_rate);
+  auto grp = cor.set_base_grp_from_ptcls(snap.pdata, select_idx);
+
   cor.calc_xi(grp);
   cor.output_xi(opt.output_filename);
 

@@ -45,6 +45,8 @@ public:
   // This is because shot noise arises from self-pairs (i == j),
   // which are absent in cross-correlations between independent particle fields.
 
+  double Om, Ol, h0;
+
   void set_kbin(double, double, int, bool);
   void check_kbin();
   void check_p() const;

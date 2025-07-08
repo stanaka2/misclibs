@@ -9,8 +9,17 @@
 
 #include <fftw3.h>
 #include "powerspec.hpp"
+#include "cosm_tools.hpp"
 #include "util.hpp"
 
+#if 1
+struct group {
+  float xpos, ypos, zpos;
+  float mass;
+  int block_id; // for jackknife
+};
+
+#else
 struct group {
   float xpos, ypos, zpos;
   float xvel, yvel, zvel;
@@ -18,6 +27,7 @@ struct group {
   float pot;
   int block_id; // for jackknife
 };
+#endif
 
 class correlation : public powerspec
 {
@@ -36,7 +46,6 @@ public:
   int jk_type = 0; /* 0: spaced-block, 1:shuffle-block */
   int jk_block, jk_level;
   int jk_dd, jk_dd2, nblock;
-  double mmin, mmax;
 
   bool symmetry = true; // true: count each pair once (i<j only)
                         // false: count both directions
@@ -68,15 +77,28 @@ public:
   void set_spspbin(double, double, int, double, double, int, double);
 
   template <typename T>
-  std::vector<group> set_ptcl_pos_group(T &, double);
+  T wrap01(T);
+
   template <typename T>
-  std::vector<group> set_halo_pm_group(T &, T &);
+  std::vector<uint64_t> select_indices(const std::vector<T> &, T, T);
+  template <typename T>
+  std::vector<uint64_t> select_indices(const std::vector<T> &, T, T, const std::vector<uint64_t> &);
+  std::vector<uint64_t> select_indices_sampling(uint64_t, double);
+  std::vector<uint64_t> select_indices_all(uint64_t);
+
   template <typename T, typename U>
-  std::vector<group> set_halo_pml_group(T &, T &, U &, int, int);
-  template <typename T>
-  std::vector<group> set_halo_pvm_group(T &, T &, T &);
-  template <typename T>
-  std::vector<group> set_halo_ppm_group(T &, T &, T &);
+  std::vector<group> set_base_grp_from_ptcls(T &, const U &);
+  template <typename T, typename U>
+  std::vector<group> set_base_grp(const T &, const U &);
+  template <typename T, typename U, typename G>
+  void apply_RSD_shift(const std::vector<T> &, const T, const std::string, const U &, G &);
+  template <typename T, typename U, typename G>
+  void apply_RSD_shift(const T &, const T &, const std::string, const U &, G &);
+  template <typename T, typename U, typename G>
+  void apply_Gred_shift(const std::vector<T> &, const T, const std::string, const U &, G &);
+  template <typename T, typename U, typename G>
+  void apply_Gred_shift(const T &, const T &, const std::string, const U &, G &);
+
   std::vector<group> set_random_group(uint64_t, const int = 2);
 
   template <typename T>
@@ -189,6 +211,12 @@ private:
   void calc_jk_xi_average();
   void calc_jk_xi_error();
 };
+
+template <typename T>
+T correlation::wrap01(T x)
+{
+  return x - floor(x); // [0,1)
+}
 
 void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bool _log_scale)
 {
@@ -339,139 +367,258 @@ int correlation::get_cell_index(T pos, int nc)
 }
 
 template <typename T>
-std::vector<group> correlation::set_ptcl_pos_group(T &pdata, double sampling_ratio)
+std::vector<uint64_t> correlation::select_indices(const std::vector<T> &data, T min, T max)
 {
-  uint64_t nptcls_full = pdata.size();
-  uint64_t nptcls = nptcls_full * sampling_ratio;
-  std::cerr << "# input ptcls " << nptcls_full << " ~ " << (int)(pow((double)nptcls_full, 1.0 / 3.0)) << "^3"
-            << std::endl;
+  uint64_t n = data.size();
+  std::cerr << "# input particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
 
-  std::vector<group> grp(nptcls);
-
-  // Fisher–Yates shuffle
-  std::random_device rd;
-  std::mt19937 g(rd());
-  std::vector<uint64_t> indices(nptcls_full);
-  std::iota(indices.begin(), indices.end(), 0);
-  std::shuffle(indices.begin(), indices.end(), g);
-
-#pragma omp parallel for
-  for(uint64_t i = 0; i < nptcls; i++) {
-    uint64_t j = indices[i];
-    grp[i].xpos = pdata[j].pos[0] / lbox; // [0,1]
-    grp[i].ypos = pdata[j].pos[1] / lbox; // [0,1]
-    grp[i].zpos = pdata[j].pos[2] / lbox; // [0,1]
+  std::vector<uint64_t> idx;
+#pragma omp parallel
+  {
+    std::vector<uint64_t> local_idx;
+#pragma omp for schedule(static)
+    for(size_t i = 0; i < n; i++) {
+      if(min <= data[i] && data[i] <= max) local_idx.push_back(i);
+    }
+#pragma omp critical
+    {
+      idx.insert(idx.end(), local_idx.begin(), local_idx.end());
+    }
   }
 
-  std::cerr << "# sampling ptcls " << nptcls << " ~ " << (int)(pow((double)nptcls, 1.0 / 3.0)) << "^3" << std::endl;
+  // to improve cache hit rate
+  std::sort(idx.begin(), idx.end());
 
-  return grp;
+  n = idx.size();
+  std::cerr << "# selection particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
+
+  return idx;
 }
 
 template <typename T>
-std::vector<group> correlation::set_halo_pm_group(T &pos, T &mvir)
+std::vector<uint64_t> correlation::select_indices(const std::vector<T> &data, T min, T max,
+                                                  const std::vector<uint64_t> &base_idx)
 {
-  uint64_t nhalo = mvir.size();
-  std::vector<group> grp(nhalo);
-  std::cerr << "# input halo " << nhalo << " ~ " << (int)(pow((double)nhalo, 1.0 / 3.0)) << "^3" << std::endl;
+  if(base_idx.empty()) return select_indices(data, min, max);
 
-  uint64_t ig = 0;
-  for(uint64_t i = 0; i < nhalo; i++) {
-    double m = mvir[i];
-    if(mmin <= m && m <= mmax) {
-      grp[ig].xpos = pos[3 * i + 0] / lbox; // [0,1]
-      grp[ig].ypos = pos[3 * i + 1] / lbox; // [0,1]
-      grp[ig].zpos = pos[3 * i + 2] / lbox; // [0,1]
-      grp[ig].mass = m;
-      ig++;
+  uint64_t n = base_idx.size();
+  std::cerr << "# selection particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
+
+  std::vector<uint64_t> idx;
+#pragma omp parallel
+  {
+    std::vector<uint64_t> local_idx;
+#pragma omp for schedule(static)
+    for(size_t j = 0; j < n; j++) {
+      auto i = base_idx[j];
+      if(min <= data[i] && data[i] <= max) local_idx.push_back(i);
+    }
+#pragma omp critical
+    {
+      idx.insert(idx.end(), local_idx.begin(), local_idx.end());
     }
   }
-  grp.resize(ig);
-  std::cerr << "# selection halo " << ig << " ~ " << (int)(pow((double)ig, 1.0 / 3.0)) << "^3" << std::endl;
+
+  // to improve cache hit rate
+  std::sort(idx.begin(), idx.end());
+
+  n = idx.size();
+  std::cerr << "# re-selection particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
+
+  return idx;
+}
+
+std::vector<uint64_t> correlation::select_indices_sampling(const uint64_t n_total, const double sampling_ratio)
+{
+  std::cerr << "# input particles " << n_total << " ~ " << (int)(pow((double)n_total, 1.0 / 3.0)) << "^3" << std::endl;
+
+  uint64_t n_sample = n_total * sampling_ratio;
+  std::vector<uint64_t> idx(n_total);
+  std::iota(idx.begin(), idx.end(), 0);
+
+  std::random_device rd;
+  std::mt19937 g(rd());
+  std::shuffle(idx.begin(), idx.end(), g);
+
+  idx.resize(n_sample);
+  std::sort(idx.begin(), idx.end());
+
+  std::cerr << "# sampling particles " << n_sample << " ~ " << (int)(pow((double)n_sample, 1.0 / 3.0)) << "^3"
+            << std::endl;
+
+  return idx;
+}
+
+std::vector<uint64_t> correlation::select_indices_all(const uint64_t n_total)
+{
+  std::cerr << "# input particles " << n_total << " ~ " << (int)(pow((double)n_total, 1.0 / 3.0)) << "^3" << std::endl;
+  std::vector<uint64_t> idx(n_total);
+  std::iota(idx.begin(), idx.end(), 0);
+  return idx;
+}
+
+template <typename T, typename U>
+std::vector<group> correlation::set_base_grp_from_ptcls(T &pdata, const U &idx)
+{
+  uint64_t n = idx.size();
+  std::vector<group> grp(n);
+
+#pragma omp parallel for
+  for(uint64_t j = 0; j < n; j++) {
+    uint64_t i = idx[j];
+    grp[j].xpos = wrap01(pdata[i].pos[0] / lbox);
+    grp[j].ypos = wrap01(pdata[i].pos[1] / lbox);
+    grp[j].zpos = wrap01(pdata[i].pos[2] / lbox);
+  }
 
   return grp;
 }
 
 template <typename T, typename U>
-std::vector<group> correlation::set_halo_pml_group(T &pos, T &mvir, U &clevel, int clevel_min, int clevel_max)
+std::vector<group> correlation::set_base_grp(const T &pos, const U &idx)
 {
-  assert(clevel_min <= clevel_max);
+  uint64_t n = idx.size();
+  std::vector<group> grp(n);
 
-  uint64_t nhalo = mvir.size();
-  std::vector<group> grp(nhalo);
-  std::cerr << "# input halo " << nhalo << " ~ " << (int)(pow((double)nhalo, 1.0 / 3.0)) << "^3" << std::endl;
-
-  uint64_t ig = 0;
-  for(uint64_t i = 0; i < nhalo; i++) {
-    auto m = mvir[i];
-    auto cl = clevel[i];
-    if(clevel_min <= cl && cl <= clevel_max) {
-      if(mmin <= m && m <= mmax) {
-        grp[ig].xpos = pos[3 * i + 0] / lbox; // [0,1]
-        grp[ig].ypos = pos[3 * i + 1] / lbox; // [0,1]
-        grp[ig].zpos = pos[3 * i + 2] / lbox; // [0,1]
-        grp[ig].mass = m;
-        ig++;
-      }
-    }
+#pragma omp parallel for
+  for(uint64_t j = 0; j < n; j++) {
+    uint64_t i = idx[j];
+    grp[j].xpos = wrap01(pos[3 * i + 0] / lbox);
+    grp[j].ypos = wrap01(pos[3 * i + 1] / lbox);
+    grp[j].zpos = wrap01(pos[3 * i + 2] / lbox);
   }
-
-  grp.resize(ig);
-  std::cerr << "# selection halo " << ig << " ~ " << (int)(pow((double)ig, 1.0 / 3.0)) << "^3" << std::endl;
 
   return grp;
 }
 
-template <typename T>
-std::vector<group> correlation::set_halo_pvm_group(T &pos, T &vel, T &mvir)
+template <typename T, typename U, typename G>
+void correlation::apply_RSD_shift(const std::vector<T> &vel, const T a, const std::string los_axis, const U &idx,
+                                  G &grp)
 {
-  uint64_t nhalo = mvir.size();
-  std::vector<group> grp(nhalo);
-  std::cerr << "# input halo " << nhalo << " ~ " << (int)(pow((double)nhalo, 1.0 / 3.0)) << "^3" << std::endl;
+  auto factor = 1.0 / (a * Ha(a, Om, Ol)) / lbox;
 
-  uint64_t ig = 0;
-  for(uint64_t i = 0; i < nhalo; i++) {
-    double m = mvir[i];
-    if(mmin <= m && m <= mmax) {
-      grp[ig].xpos = pos[3 * i + 0] / lbox; // [0,1]
-      grp[ig].ypos = pos[3 * i + 1] / lbox; // [0,1]
-      grp[ig].zpos = pos[3 * i + 2] / lbox; // [0,1]
-      grp[ig].xvel = vel[3 * i + 0];        // km/s
-      grp[ig].yvel = vel[3 * i + 1];        // km/s
-      grp[ig].zvel = vel[3 * i + 2];        // km/s
-      grp[ig].mass = m;
-      ig++;
+  if(los_axis == "x") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto v_los = vel[3 * i + 0];
+      auto delta = v_los * factor;
+      grp[j].xpos = wrap01(grp[j].xpos + delta);
+    }
+
+  } else if(los_axis == "y") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto v_los = vel[3 * i + 1];
+      auto delta = v_los * factor;
+      grp[j].ypos = wrap01(grp[j].ypos + delta);
+    }
+
+  } else if(los_axis == "z") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto v_los = vel[3 * i + 2];
+      auto delta = v_los * factor;
+      grp[j].zpos = wrap01(grp[j].zpos + delta);
     }
   }
-  grp.resize(ig);
-  std::cerr << "# selection halo " << ig << " ~ " << (int)(pow((double)ig, 1.0 / 3.0)) << "^3" << std::endl;
-
-  return grp;
 }
 
-template <typename T>
-std::vector<group> correlation::set_halo_ppm_group(T &pos, T &pot, T &mvir)
+template <typename T, typename U, typename G>
+void correlation::apply_RSD_shift(const T &vel, const T &ptcl_a, const std::string los_axis, const U &idx, G &grp)
 {
-  uint64_t nhalo = mvir.size();
-  std::vector<group> grp(nhalo);
-  std::cerr << "# input halo " << nhalo << " ~ " << (int)(pow((double)nhalo, 1.0 / 3.0)) << "^3" << std::endl;
+  if(los_axis == "x") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto v_los = vel[3 * i + 0];
+      auto delta = v_los / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
+      grp[j].xpos = wrap01(grp[j].xpos + delta);
+    }
 
-  uint64_t ig = 0;
-  for(uint64_t i = 0; i < nhalo; i++) {
-    double m = mvir[i];
-    if(mmin <= m && m <= mmax) {
-      grp[ig].xpos = pos[3 * i + 0] / lbox; // [0,1]
-      grp[ig].ypos = pos[3 * i + 1] / lbox; // [0,1]
-      grp[ig].zpos = pos[3 * i + 2] / lbox; // [0,1]
-      grp[ig].pot = pot[i];
-      grp[ig].mass = m;
-      ig++;
+  } else if(los_axis == "y") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto v_los = vel[3 * i + 1];
+      auto delta = v_los / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
+      grp[j].ypos = wrap01(grp[j].ypos + delta);
+    }
+
+  } else if(los_axis == "z") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto v_los = vel[3 * i + 2];
+      auto delta = v_los / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
+      grp[j].zpos = wrap01(grp[j].zpos + delta);
     }
   }
-  grp.resize(ig);
-  std::cerr << "# selection halo " << ig << " ~ " << (int)(pow((double)ig, 1.0 / 3.0)) << "^3" << std::endl;
+}
 
-  return grp;
+template <typename T, typename U, typename G>
+void correlation::apply_Gred_shift(const std::vector<T> &pot, const T a, const std::string los_axis, const U &idx,
+                                   G &grp)
+{
+  auto factor = cspeed / (a * Ha(a, Om, Ol)) / lbox;
+
+  // pot is non-dimensional
+  if(los_axis == "x") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto delta = pot[i] * factor;
+      grp[j].xpos = wrap01(grp[j].xpos - delta);
+    }
+
+  } else if(los_axis == "y") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto delta = pot[i] * factor;
+      grp[j].ypos = wrap01(grp[j].ypos - delta);
+    }
+
+  } else if(los_axis == "z") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto delta = pot[i] * factor;
+      grp[j].zpos = wrap01(grp[j].zpos - delta);
+    }
+  }
+}
+
+template <typename T, typename U, typename G>
+void correlation::apply_Gred_shift(const T &pot, const T &ptcl_a, const std::string los_axis, const U &idx, G &grp)
+{
+  // pot is non-dimensional
+  if(los_axis == "x") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto delta = pot[i] * cspeed / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
+      grp[j].xpos = wrap01(grp[j].xpos - delta);
+    }
+
+  } else if(los_axis == "y") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto delta = pot[i] * cspeed / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
+      grp[j].ypos = wrap01(grp[j].ypos - delta);
+    }
+
+  } else if(los_axis == "z") {
+#pragma omp parallel for
+    for(size_t j = 0; j < idx.size(); j++) {
+      auto i = idx[j];
+      auto delta = pot[i] * cspeed / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
+      grp[j].zpos = wrap01(grp[j].zpos - delta);
+    }
+  }
 }
 
 std::vector<group> correlation::set_random_group(uint64_t nrand, const int seed)
@@ -1188,6 +1335,19 @@ void correlation::calc_xi_impl(T &grp)
   }
 }
 
+#if 0
+/*
+ Note: This implementation normalizes using ideal shell/cylinder volumes
+ without random catalogs (RR).
+
+ - May over/underestimate xi on small scales (few pairs) or large scales
+   (periodic boundary effects).
+ - Cell-based decomposition can mismatch actual pair distribution
+   vs. expected volume.
+
+ Recommended to use RR-based normalization (below) for robust xi = DD / RR - 1.
+*/
+
 template <typename T>
 void correlation::calc_xi_smu_impl(T &grp)
 {
@@ -1331,6 +1491,148 @@ void correlation::calc_xi_spsp_impl(T &grp)
   }
 }
 
+#else
+
+template <typename T>
+void correlation::calc_xi_smu_impl(T &grp)
+{
+  uint64_t ngrp = grp.size();
+  uint64_t nrand = ngrp * nrand_factor;
+
+  dd_pair.assign(nr * nmu, 0.0);
+  rr_pair.assign(nr * nmu, 0.0);
+  xi.assign(nr * nmu, 0.0);
+
+  auto rand = set_random_group(nrand);
+
+  /* Here only the global box size */
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int nc3 = ncx * ncy * ncz;
+
+  std::vector<std::vector<int>> cell_list(nc3);
+  std::vector<std::vector<int>> cell_list_rand(nc3);
+
+  for(uint64_t i = 0; i < ngrp; i++) {
+    const int ix = get_cell_index(grp[i].xpos, ncx);
+    const int iy = get_cell_index(grp[i].ypos, ncy);
+    const int iz = get_cell_index(grp[i].zpos, ncz);
+    const int cell_id = iz + ncz * (iy + ncy * ix);
+    cell_list[cell_id].push_back(i);
+  }
+
+  for(uint64_t i = 0; i < nrand; i++) {
+    const int ix = get_cell_index(rand[i].xpos, ncx);
+    const int iy = get_cell_index(rand[i].ypos, ncy);
+    const int iz = get_cell_index(rand[i].zpos, ncz);
+    const int cell_id = iz + ncz * (iy + ncy * ix);
+    cell_list_rand[cell_id].push_back(i);
+  }
+
+#pragma omp parallel
+  {
+
+    int nthread = omp_get_num_threads();
+    int ithread = omp_get_thread_num();
+    uint64_t progress_thread = nc3 / nthread;
+
+    if(ithread == 0)
+      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+                << std::endl;
+
+    auto thr_dd_pair_smu = calc_pair_smu(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
+    auto thr_rr_pair_smu = calc_pair_smu(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+
+#pragma omp critical
+    {
+      for(int ir = 0; ir < nr * nmu; ++ir) { // not nr
+        dd_pair[ir] += thr_dd_pair_smu[ir];
+        rr_pair[ir] += thr_rr_pair_smu[ir];
+      }
+    } // omp critical
+  } // omp parallel
+
+  for(int ir = 0; ir < nr; ir++) {
+    for(int imu = 0; imu < nmu; imu++) {
+      int idx = imu + nmu * ir;
+      auto rr_norm = rr_pair[idx] / nrand_factor;
+      xi[idx] = dd_pair[idx] / (rr_norm + 1e-10) - 1.0;
+    }
+  }
+}
+
+template <typename T>
+void correlation::calc_xi_spsp_impl(T &grp)
+{
+  uint64_t ngrp = grp.size();
+  uint64_t nrand = ngrp * nrand_factor;
+
+  dd_pair.assign(nsperp * nspara, 0.0);
+  rr_pair.assign(nsperp * nspara, 0.0);
+  xi.assign(nsperp * nspara, 0.0);
+
+  auto rand = set_random_group(nrand);
+
+  /* Here only the global box size */
+  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
+  const int nc3 = ncx * ncy * ncz;
+
+  std::vector<std::vector<int>> cell_list(nc3);
+  std::vector<std::vector<int>> cell_list_rand(nc3);
+
+  for(uint64_t i = 0; i < ngrp; i++) {
+    const int ix = get_cell_index(grp[i].xpos, ncx);
+    const int iy = get_cell_index(grp[i].ypos, ncy);
+    const int iz = get_cell_index(grp[i].zpos, ncz);
+    const int cell_id = iz + ncz * (iy + ncy * ix);
+    cell_list[cell_id].push_back(i);
+  }
+
+  for(uint64_t i = 0; i < nrand; i++) {
+    const int ix = get_cell_index(rand[i].xpos, ncx);
+    const int iy = get_cell_index(rand[i].ypos, ncy);
+    const int iz = get_cell_index(rand[i].zpos, ncz);
+    const int cell_id = iz + ncz * (iy + ncy * ix);
+    cell_list_rand[cell_id].push_back(i);
+  }
+
+#pragma omp parallel
+  {
+
+    int nthread = omp_get_num_threads();
+    int ithread = omp_get_thread_num();
+    uint64_t progress_thread = nc3 / nthread;
+
+    if(ithread == 0)
+      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+                << std::endl;
+
+    auto thr_dd_pair_spsp = calc_pair_spsp(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
+    auto thr_rr_pair_spsp = calc_pair_spsp(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+
+#pragma omp critical
+    {
+      for(int ir = 0; ir < nsperp * nspara; ++ir) { // not nr
+        dd_pair[ir] += thr_dd_pair_spsp[ir];
+        rr_pair[ir] += thr_rr_pair_spsp[ir];
+      }
+    } // omp critical
+  } // omp parallel
+
+  for(int iperp = 0; iperp < nsperp; iperp++) {
+    for(int ipara = 0; ipara < nspara; ipara++) {
+      int idx = ipara + nspara * iperp;
+      auto rr_norm = rr_pair[idx] / nrand_factor;
+      xi[idx] = dd_pair[idx] / (rr_norm + 1e-10) - 1.0;
+    }
+  }
+}
+
+#endif
+
 template <typename T>
 void correlation::calc_xi_impl(T &grp1, T &grp2)
 {
@@ -1406,8 +1708,6 @@ void correlation::calc_xi_LS_impl(T &grp)
 {
   /* Landy SD, Szalay AS 1993, Apj */
   /* Advice by chatgpt */
-  symmetry = true;
-
   uint64_t ngrp = grp.size();
   uint64_t nrand = ngrp * nrand_factor;
 
@@ -1810,8 +2110,6 @@ void correlation::calc_jk_xi_error()
 template <typename T>
 void correlation::resample_jk(T &grp)
 {
-  symmetry = true;
-
   uint64_t ngrp = grp.size();
 
   /* Here only the global box size */
@@ -2717,8 +3015,6 @@ void correlation::calc_xi_jk_ifft_impl(T &mesh_orig1, T &mesh_orig2, T &weight)
 void correlation::output_xi(std::string filename)
 {
   std::ofstream fout(filename);
-  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
-
   if(jk_block <= 1) {
     if(use_LS) {
       fout << "# r[Mpc/h] xi DD DR RR" << std::endl;
@@ -2763,8 +3059,6 @@ template <typename T>
 void correlation::output_xi(std::string filename, T &weight)
 {
   std::ofstream fout(filename);
-  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
-
   if(jk_block <= 1) {
     fout << "# r[Mpc/h] xi weight" << std::endl;
     for(int ir = 0; ir < nr; ir++) {
@@ -2790,8 +3084,6 @@ void correlation::output_xi(std::string filename, T &weight)
 void correlation::output_xi_smu(std::string filename)
 {
   std::ofstream fout(filename);
-  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
-
   if(jk_block <= 1) {
     if(use_LS) {
       fout << "# r[Mpc/h] mu xi DD DR RR" << std::endl;
@@ -2847,8 +3139,6 @@ void correlation::output_xi_smu(std::string filename)
 void correlation::output_xi_spsp(std::string filename)
 {
   std::ofstream fout(filename);
-  fout << "# Mvir min, max = " << std::scientific << std::setprecision(4) << mmin << ", " << mmax << std::endl;
-
   if(jk_block <= 1) {
     if(use_LS) {
       fout << "# s_perp[Mpc/h] s_para[Mpc/h] xi DD DR RR" << std::endl;
