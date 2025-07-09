@@ -202,6 +202,44 @@ void halo_assign_mesh(T &pos, T &val, T &mesh, const int nmesh, const double lbo
   }
 }
 
+template <typename G, typename T>
+void group_assign_mesh(G &grp, T &mesh, const int nmesh, const int scheme)
+{
+  int64_t nmesh_z = nmesh + 2;
+  int64_t npart = grp.size();
+
+  for(uint64_t p = 0; p < npart; p++) {
+    auto xpos = grp[p].xpos;
+    auto ypos = grp[p].ypos;
+    auto zpos = grp[p].zpos;
+    // auto _val = grp[p].mass;
+    auto _val = 1;
+
+    assert(xpos >= 0.0 && xpos <= 1.0);
+    assert(ypos >= 0.0 && ypos <= 1.0);
+    assert(zpos >= 0.0 && zpos <= 1.0);
+
+    int idx_x[3], idx_y[3], idx_z[3];
+    double w_x[3], w_y[3], w_z[3];
+    int nx = assign_axis(xpos, nmesh, scheme, idx_x, w_x);
+    int ny = assign_axis(ypos, nmesh, scheme, idx_y, w_y);
+    int nz = assign_axis(zpos, nmesh, scheme, idx_z, w_z);
+
+    for(int ix = 0; ix < nx; ix++) {
+      for(int iy = 0; iy < ny; iy++) {
+        for(int iz = 0; iz < nz; iz++) {
+          int64_t iwx = idx_x[ix];
+          int64_t iwy = idx_y[iy];
+          int64_t iwz = idx_z[iz];
+          double weight = w_x[ix] * w_y[iy] * w_z[iz];
+          int64_t idx = iwz + nmesh_z * (iwy + nmesh * iwx);
+          mesh[idx] += weight * _val;
+        }
+      }
+    }
+  }
+}
+
 template <typename T>
 void output_field(T &mesh, const int nmesh, const double lbox, std::string filename)
 {

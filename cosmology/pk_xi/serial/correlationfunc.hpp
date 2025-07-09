@@ -2,32 +2,14 @@
 
 #include <iostream>
 #include <vector>
-#include <random>
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
 
 #include <fftw3.h>
+#include "group.hpp"
 #include "powerspec.hpp"
-#include "cosm_tools.hpp"
 #include "util.hpp"
-
-#if 1
-struct group {
-  float xpos, ypos, zpos;
-  float mass;
-  int block_id; // for jackknife
-};
-
-#else
-struct group {
-  float xpos, ypos, zpos;
-  float xvel, yvel, zvel;
-  float mass;
-  float pot;
-  int block_id; // for jackknife
-};
-#endif
 
 class correlation : public powerspec
 {
@@ -75,31 +57,6 @@ public:
   void check_rbin();
   void set_smubin(double, double, int, double, double, int, double);
   void set_spspbin(double, double, int, double, double, int, double);
-
-  template <typename T>
-  T wrap01(T);
-
-  template <typename T>
-  std::vector<uint64_t> select_indices(const std::vector<T> &, T, T);
-  template <typename T>
-  std::vector<uint64_t> select_indices(const std::vector<T> &, T, T, const std::vector<uint64_t> &);
-  std::vector<uint64_t> select_indices_sampling(uint64_t, double);
-  std::vector<uint64_t> select_indices_all(uint64_t);
-
-  template <typename T, typename U>
-  std::vector<group> set_base_grp_from_ptcls(T &, const U &);
-  template <typename T, typename U>
-  std::vector<group> set_base_grp(const T &, const U &);
-  template <typename T, typename U, typename G>
-  void apply_RSD_shift(const std::vector<T> &, const T, const std::string, const U &, G &);
-  template <typename T, typename U, typename G>
-  void apply_RSD_shift(const T &, const T &, const std::string, const U &, G &);
-  template <typename T, typename U, typename G>
-  void apply_Gred_shift(const std::vector<T> &, const T, const std::string, const U &, G &);
-  template <typename T, typename U, typename G>
-  void apply_Gred_shift(const T &, const T &, const std::string, const U &, G &);
-
-  std::vector<group> set_random_group(uint64_t, const int = 2);
 
   template <typename T>
   void calc_xi(T &);
@@ -211,12 +168,6 @@ private:
   void calc_jk_xi_average();
   void calc_jk_xi_error();
 };
-
-template <typename T>
-T correlation::wrap01(T x)
-{
-  return x - floor(x); // [0,1)
-}
 
 void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bool _log_scale)
 {
@@ -364,278 +315,6 @@ int correlation::get_cell_index(T pos, int nc)
   if(idx < 0) idx += nc;
   if(idx >= nc) idx -= nc;
   return idx;
-}
-
-template <typename T>
-std::vector<uint64_t> correlation::select_indices(const std::vector<T> &data, T min, T max)
-{
-  uint64_t n = data.size();
-  std::cerr << "# input particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
-
-  std::vector<uint64_t> idx;
-#pragma omp parallel
-  {
-    std::vector<uint64_t> local_idx;
-#pragma omp for schedule(static)
-    for(size_t i = 0; i < n; i++) {
-      if(min <= data[i] && data[i] <= max) local_idx.push_back(i);
-    }
-#pragma omp critical
-    {
-      idx.insert(idx.end(), local_idx.begin(), local_idx.end());
-    }
-  }
-
-  // to improve cache hit rate
-  std::sort(idx.begin(), idx.end());
-
-  n = idx.size();
-  std::cerr << "# selection particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
-
-  return idx;
-}
-
-template <typename T>
-std::vector<uint64_t> correlation::select_indices(const std::vector<T> &data, T min, T max,
-                                                  const std::vector<uint64_t> &base_idx)
-{
-  if(base_idx.empty()) return select_indices(data, min, max);
-
-  uint64_t n = base_idx.size();
-  std::cerr << "# selection particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
-
-  std::vector<uint64_t> idx;
-#pragma omp parallel
-  {
-    std::vector<uint64_t> local_idx;
-#pragma omp for schedule(static)
-    for(size_t j = 0; j < n; j++) {
-      auto i = base_idx[j];
-      if(min <= data[i] && data[i] <= max) local_idx.push_back(i);
-    }
-#pragma omp critical
-    {
-      idx.insert(idx.end(), local_idx.begin(), local_idx.end());
-    }
-  }
-
-  // to improve cache hit rate
-  std::sort(idx.begin(), idx.end());
-
-  n = idx.size();
-  std::cerr << "# re-selection particles " << n << " ~ " << (int)(pow((double)n, 1.0 / 3.0)) << "^3" << std::endl;
-
-  return idx;
-}
-
-std::vector<uint64_t> correlation::select_indices_sampling(const uint64_t n_total, const double sampling_ratio)
-{
-  std::cerr << "# input particles " << n_total << " ~ " << (int)(pow((double)n_total, 1.0 / 3.0)) << "^3" << std::endl;
-
-  uint64_t n_sample = n_total * sampling_ratio;
-  std::vector<uint64_t> idx(n_total);
-  std::iota(idx.begin(), idx.end(), 0);
-
-  std::random_device rd;
-  std::mt19937 g(rd());
-  std::shuffle(idx.begin(), idx.end(), g);
-
-  idx.resize(n_sample);
-  std::sort(idx.begin(), idx.end());
-
-  std::cerr << "# sampling particles " << n_sample << " ~ " << (int)(pow((double)n_sample, 1.0 / 3.0)) << "^3"
-            << std::endl;
-
-  return idx;
-}
-
-std::vector<uint64_t> correlation::select_indices_all(const uint64_t n_total)
-{
-  std::cerr << "# input particles " << n_total << " ~ " << (int)(pow((double)n_total, 1.0 / 3.0)) << "^3" << std::endl;
-  std::vector<uint64_t> idx(n_total);
-  std::iota(idx.begin(), idx.end(), 0);
-  return idx;
-}
-
-template <typename T, typename U>
-std::vector<group> correlation::set_base_grp_from_ptcls(T &pdata, const U &idx)
-{
-  uint64_t n = idx.size();
-  std::vector<group> grp(n);
-
-#pragma omp parallel for
-  for(uint64_t j = 0; j < n; j++) {
-    uint64_t i = idx[j];
-    grp[j].xpos = wrap01(pdata[i].pos[0] / lbox);
-    grp[j].ypos = wrap01(pdata[i].pos[1] / lbox);
-    grp[j].zpos = wrap01(pdata[i].pos[2] / lbox);
-  }
-
-  return grp;
-}
-
-template <typename T, typename U>
-std::vector<group> correlation::set_base_grp(const T &pos, const U &idx)
-{
-  uint64_t n = idx.size();
-  std::vector<group> grp(n);
-
-#pragma omp parallel for
-  for(uint64_t j = 0; j < n; j++) {
-    uint64_t i = idx[j];
-    grp[j].xpos = wrap01(pos[3 * i + 0] / lbox);
-    grp[j].ypos = wrap01(pos[3 * i + 1] / lbox);
-    grp[j].zpos = wrap01(pos[3 * i + 2] / lbox);
-  }
-
-  return grp;
-}
-
-template <typename T, typename U, typename G>
-void correlation::apply_RSD_shift(const std::vector<T> &vel, const T a, const std::string los_axis, const U &idx,
-                                  G &grp)
-{
-  auto factor = 1.0 / (a * Ha(a, Om, Ol)) / lbox;
-
-  if(los_axis == "x") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto v_los = vel[3 * i + 0];
-      auto delta = v_los * factor;
-      grp[j].xpos = wrap01(grp[j].xpos + delta);
-    }
-
-  } else if(los_axis == "y") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto v_los = vel[3 * i + 1];
-      auto delta = v_los * factor;
-      grp[j].ypos = wrap01(grp[j].ypos + delta);
-    }
-
-  } else if(los_axis == "z") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto v_los = vel[3 * i + 2];
-      auto delta = v_los * factor;
-      grp[j].zpos = wrap01(grp[j].zpos + delta);
-    }
-  }
-}
-
-template <typename T, typename U, typename G>
-void correlation::apply_RSD_shift(const T &vel, const T &ptcl_a, const std::string los_axis, const U &idx, G &grp)
-{
-  if(los_axis == "x") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto v_los = vel[3 * i + 0];
-      auto delta = v_los / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
-      grp[j].xpos = wrap01(grp[j].xpos + delta);
-    }
-
-  } else if(los_axis == "y") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto v_los = vel[3 * i + 1];
-      auto delta = v_los / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
-      grp[j].ypos = wrap01(grp[j].ypos + delta);
-    }
-
-  } else if(los_axis == "z") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto v_los = vel[3 * i + 2];
-      auto delta = v_los / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
-      grp[j].zpos = wrap01(grp[j].zpos + delta);
-    }
-  }
-}
-
-template <typename T, typename U, typename G>
-void correlation::apply_Gred_shift(const std::vector<T> &pot, const T a, const std::string los_axis, const U &idx,
-                                   G &grp)
-{
-  auto factor = cspeed / (a * Ha(a, Om, Ol)) / lbox;
-
-  // pot is non-dimensional
-  if(los_axis == "x") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto delta = pot[i] * factor;
-      grp[j].xpos = wrap01(grp[j].xpos - delta);
-    }
-
-  } else if(los_axis == "y") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto delta = pot[i] * factor;
-      grp[j].ypos = wrap01(grp[j].ypos - delta);
-    }
-
-  } else if(los_axis == "z") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto delta = pot[i] * factor;
-      grp[j].zpos = wrap01(grp[j].zpos - delta);
-    }
-  }
-}
-
-template <typename T, typename U, typename G>
-void correlation::apply_Gred_shift(const T &pot, const T &ptcl_a, const std::string los_axis, const U &idx, G &grp)
-{
-  // pot is non-dimensional
-  if(los_axis == "x") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto delta = pot[i] * cspeed / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
-      grp[j].xpos = wrap01(grp[j].xpos - delta);
-    }
-
-  } else if(los_axis == "y") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto delta = pot[i] * cspeed / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
-      grp[j].ypos = wrap01(grp[j].ypos - delta);
-    }
-
-  } else if(los_axis == "z") {
-#pragma omp parallel for
-    for(size_t j = 0; j < idx.size(); j++) {
-      auto i = idx[j];
-      auto delta = pot[i] * cspeed / (ptcl_a[i] * Ha(ptcl_a[i], Om, Ol)) / lbox;
-      grp[j].zpos = wrap01(grp[j].zpos - delta);
-    }
-  }
-}
-
-std::vector<group> correlation::set_random_group(uint64_t nrand, const int seed)
-{
-  std::mt19937_64 rng(seed);
-  std::uniform_real_distribution<> dist(0.0, 1.0);
-  std::vector<group> rand(nrand);
-
-  for(uint64_t i = 0; i < nrand; i++) {
-    rand[i].xpos = dist(rng);
-    rand[i].ypos = dist(rng);
-    rand[i].zpos = dist(rng);
-  }
-
-  std::cerr << "# set random halo pos " << nrand << " ~ " << (int)(pow((double)nrand, 1.0 / 3.0)) << "^3" << std::endl;
-
-  return rand;
 }
 
 template <typename T>
@@ -1503,7 +1182,8 @@ void correlation::calc_xi_smu_impl(T &grp)
   rr_pair.assign(nr * nmu, 0.0);
   xi.assign(nr * nmu, 0.0);
 
-  auto rand = set_random_group(nrand);
+  groupcatalog g;
+  auto rand = g.set_random_group(nrand);
 
   /* Here only the global box size */
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
@@ -1572,7 +1252,8 @@ void correlation::calc_xi_spsp_impl(T &grp)
   rr_pair.assign(nsperp * nspara, 0.0);
   xi.assign(nsperp * nspara, 0.0);
 
-  auto rand = set_random_group(nrand);
+  groupcatalog g;
+  auto rand = g.set_random_group(nrand);
 
   /* Here only the global box size */
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
@@ -1716,7 +1397,8 @@ void correlation::calc_xi_LS_impl(T &grp)
   rr_pair.assign(nr, 0.0);
   xi.assign(nr, 0.0);
 
-  auto rand = set_random_group(nrand);
+  groupcatalog g;
+  auto rand = g.set_random_group(nrand);
 
   /* Here only the global box size */
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
@@ -1796,8 +1478,9 @@ void correlation::calc_xi_LS_impl(T &grp1, T &grp2)
   rr_pair.assign(nr, 0.0);
   xi.assign(nr, 0.0);
 
-  auto rand1 = set_random_group(nrand1, 1);
-  auto rand2 = set_random_group(nrand2, 2);
+  groupcatalog g;
+  auto rand1 = g.set_random_group(nrand1, 1);
+  auto rand2 = g.set_random_group(nrand2, 2);
 
   /* Here only the global box size */
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
@@ -1989,7 +1672,8 @@ void correlation::calc_xi_jk_LS_impl(T &grp)
     }
   }
 
-  auto rand = set_random_group(nrand);
+  groupcatalog g;
+  auto rand = g.set_random_group(nrand);
 
   if(jk_type == 0) {
     std::cerr << "blocked jackknife by spaced sampling" << std::endl;
@@ -2041,8 +1725,10 @@ void correlation::calc_xi_jk_LS_impl(T &grp1, T &grp2)
       xi_jk[iblock][ir] = 0.0;
     }
   }
-  auto rand1 = set_random_group(nrand1, 1);
-  auto rand2 = set_random_group(nrand2, 2);
+
+  groupcatalog g;
+  auto rand1 = g.set_random_group(nrand1, 3);
+  auto rand2 = g.set_random_group(nrand2, 4);
 
   if(jk_type == 0) {
     std::cerr << "blocked jackknife by spaced sampling" << std::endl;

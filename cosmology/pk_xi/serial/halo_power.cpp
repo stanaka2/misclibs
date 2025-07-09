@@ -6,6 +6,7 @@
 
 #include "field.hpp"
 #include "load_halo.hpp"
+#include "group.hpp"
 #include "powerspec.hpp"
 #include "base_opts.hpp"
 
@@ -38,45 +39,35 @@ int main(int argc, char **argv)
   halos.print_header();
   halos.scheme = opt.p_assign;
 
+  double lbox = halos.box_size;
+
   auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
   auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
+  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
 
-  int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
-  int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
-  double lbox(halos.box_size);
+  groupcatalog groups;
+  groups.lbox = lbox;
+  groups.Om = halos.Om;
+  groups.Ol = halos.Ol;
 
-  std::vector<float> dens_mesh(nfft_tot);
-  std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
+  groups.select_range(mvir, mvir_min, mvir_max);
+  groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
-#if 0
-/* halo mass density filed */
-halo_assign_mesh(pos, mvir, dens_mesh, nmesh, lbox, halos.scheme);
+  auto grp = groups.set_base_grp(pos);
 
-#else
-  /* halo number density filed */
-  /* halo selection */
-  std::vector<float> ones(mvir.size(), 0.0);
-  for(size_t i = 0; i < mvir.size(); i++) {
-    if(mvir[i] > mvir_min && mvir[i] < mvir_max) ones[i] = 1.0;
-  }
+  int64_t nfft_tot = (int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2);
+  std::vector<float> dens_mesh(nfft_tot, 0.0f);
 
-  int64_t nhalo_select = 0;
-  for(size_t i = 0; i < ones.size(); i++) {
-    nhalo_select += ones[i];
-  }
-
-  halo_assign_mesh(pos, ones, dens_mesh, nmesh, lbox, halos.scheme);
+  group_assign_mesh(grp, dens_mesh, nmesh, 1.0, halos.scheme);
 
   double dens_mean = 0.0;
-  for(int64_t i = 0; i < nfft_tot; i++) {
-    dens_mean += dens_mesh[i];
-  }
+#pragma omp parallel for reduction(+ : dens_mean)
+  for(int64_t i = 0; i < nfft_tot; i++) dens_mean += dens_mesh[i];
+
   dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
 
-  for(int64_t i = 0; i < nfft_tot; i++) {
-    dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
-  }
-#endif
+#pragma omp parallel for
+  for(int64_t i = 0; i < nfft_tot; i++) dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
 
   powerspec power;
   power.p = halos.scheme;

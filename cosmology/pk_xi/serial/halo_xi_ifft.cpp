@@ -8,6 +8,7 @@
 
 #include "field.hpp"
 #include "load_halo.hpp"
+#include "group.hpp"
 #include "correlationfunc.hpp"
 #include "base_opts.hpp"
 
@@ -80,35 +81,37 @@ int main(int argc, char **argv)
   halos.print_header();
   halos.scheme = opt.p_assign;
 
-  double lbox(halos.box_size);
+  double lbox = halos.box_size;
 
   auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
   auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
   auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
 
-  correlation cor;
+  groupcatalog groups;
+  groups.lbox = lbox;
+  groups.Om = halos.Om;
+  groups.Ol = halos.Ol;
 
-  auto select_idx = cor.select_indices(mvir, mvir_min, mvir_max);
-  select_idx = cor.select_indices(clevel, opt.clevel[0], opt.clevel[1], select_idx);
+  groups.select_range(mvir, mvir_min, mvir_max);
+  groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
-  int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
-  int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
+  auto grp = groups.set_base_grp(pos);
 
-  std::vector<float> dens_mesh(nfft_tot);
-  std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
+  int64_t nfft_tot = (int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2);
+  std::vector<float> dens_mesh(nfft_tot, 0.0f);
 
-  std::vector<float> ones(mvir.size(), 0.0);
-  for(auto i : select_idx) ones[i] = 1.0;
-  int64_t nhalo_select = select_idx.size();
-
-  halo_assign_mesh(pos, ones, dens_mesh, nmesh, lbox, halos.scheme);
+  group_assign_mesh(grp, dens_mesh, nmesh, 1.0, halos.scheme);
 
   double dens_mean = 0.0;
+#pragma omp parallel for reduction(+ : dens_mean)
   for(int64_t i = 0; i < nfft_tot; i++) dens_mean += dens_mesh[i];
+
   dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
+
+#pragma omp parallel for
   for(int64_t i = 0; i < nfft_tot; i++) dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
 
-  //  correlation cor;
+  correlation cor;
   cor.p = halos.scheme;
   cor.lbox = lbox;
   cor.nmesh = nmesh;

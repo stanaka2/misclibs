@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=gnu++17 -O3 -fopenmp
+CXXFLAGS = -std=gnu++17 -march=native -O3 -fopenmp
 
 HDF5_INC = -I/usr/include/hdf5/serial
 HDF5_LIB = -lhdf5_serial
