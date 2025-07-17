@@ -18,12 +18,7 @@ int main(int argc, char **argv)
   bool log_bin = opt.log_bin;
   auto nmesh = opt.nmesh;
 
-  std::cout << "# input prefix " << opt.input_prefix << std::endl;
-  std::cout << "# output filename " << opt.output_filename << std::endl;
-  std::cout << "# kmin, kmax, Nk " << kmin << ", " << kmax << ", " << nk << std::endl;
-  std::cout << "# log_bin " << std::boolalpha << opt.log_bin << std::endl;
-  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
-  std::cout << std::endl;
+  opt.print_args();
 
   load_ptcl<particle_pot_str> snap;
   snap.nmesh = nmesh;

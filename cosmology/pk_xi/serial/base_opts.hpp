@@ -26,6 +26,10 @@ public:
   bool do_Gred = false;
   std::string los_axis = "z"; // line-of-sight axis for RSD and Gred
 
+  std::string estimator = "ideal";
+  int nrand_factor = 1;
+  double sampling_rate = 1.0;
+
   bool verbose = false;
 
   /* constants arguments */
@@ -51,6 +55,7 @@ public:
 
   void print_args()
   {
+    std::cout << "\n";
     auto maxlen = get_max_option_length();
     for(const auto &opt : app.get_options()) {
       if(opt->get_name() == "--help") continue;
@@ -71,6 +76,7 @@ public:
         std::cout << (def.empty() ? "false" : def) << "  (default)\n";
       }
     }
+    std::cout << "\n";
   }
 
 protected:
@@ -98,6 +104,13 @@ protected:
     app.add_flag("--Gred", do_Gred, "Apply gravitational redshift shift to positions")->capture_default_str();
     app.add_option("--los_axis", los_axis, "Line-of-sight axis (x, y, or z) for applying RSD and gravitational redshift shifts")
         ->check(CLI::IsMember({"x", "y", "z"}))->capture_default_str();
+
+    app.add_option("--est", estimator, "estimator for xi calculation")
+        ->check(CLI::IsMember({"ideal", "RR", "LS"}))
+        ->capture_default_str();
+    app.add_option("--nrand_factor", nrand_factor, "factor of nrand to ngrp")->capture_default_str();
+    app.add_option("--sampling_rate", sampling_rate, "sampling rate for pair-count")->capture_default_str();
+
     app.add_flag("-v,--verbose", verbose, "verbose output");
     // clang-format on
   }

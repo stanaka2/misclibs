@@ -43,6 +43,7 @@ public:
 
   // for position xi
   // support Landy SD, Szalay AS 1993, Apj
+  std::string estimator = "ideal"; // "ideal", "RR", "LS"
   bool use_LS = false;
   int64_t nrand_factor = 1;
   std::vector<double> dd_pair, dr_pair, dr2_pair, rr_pair;                          // size[nr]
@@ -92,6 +93,12 @@ private:
 
   template <typename T>
   void shuffle_data(T &, const int = 10);
+
+  void calc_ideal_pair(uint64_t);
+  void calc_ideal_smu_pair(uint64_t);
+  void calc_ideal_spsp_pair(uint64_t);
+  void calc_xi_from_pair(uint64_t);
+  void calc_xi_from_pair(uint64_t, uint64_t);
 
   template <typename G, typename C>
   std::vector<double> calc_pair(const double, G &, C &, int, int, int, const std::string);
@@ -303,7 +310,6 @@ int correlation::get_imu_form_dr(T dx, T dy, T dz)
   dz -= std::nearbyint(dz);
   const double dr2 = dx * dx + dy * dy + dz * dz;
   double mu = dz / std::sqrt(dr2);
-  // if(!full_angle) mu = std::abs(mu);
   int imu = std::floor((mu - mumin) / dmu);
   return (imu >= 0 && imu < nmu) ? imu : -1;
 }
@@ -521,16 +527,155 @@ void correlation::set_rand_block_edge_id_shuffle(uint64_t nrand1, uint64_t nrand
   }
 }
 
+void correlation::calc_ideal_pair(uint64_t npair)
+{
+  auto nxi = dd_pair.size();
+  rr_pair.assign(nxi, 0.0);
+
+  // double V_box = lbox * lbox * lbox;
+  double V_box = 1.0;
+
+#pragma omp parallel for
+  for(int ir = 0; ir < nr; ir++) {
+
+    double r_low, r_high;
+    if(log_scale) {
+      r_low = rmin * pow(ratio, ir);
+      r_high = rmin * pow(ratio, ir + 1);
+    } else {
+      r_low = rmin + lin_dr * ir;
+      r_high = rmin + lin_dr * (ir + 1);
+    }
+
+    auto shell_volume = (4.0 / 3.0) * M_PI;
+    shell_volume *= (r_high * r_high * r_high - r_low * r_low * r_low);
+
+    auto norm = npair * shell_volume / V_box;
+    rr_pair[ir] = norm;
+  }
+}
+
+void correlation::calc_ideal_smu_pair(uint64_t npair)
+{
+  auto nxi = dd_pair.size();
+  rr_pair.assign(nxi, 0.0);
+
+  double V_box = 1.0;
+  double mu_range = mumax - mumin;
+
+#pragma omp parallel for
+  for(int ir = 0; ir < nr; ir++) {
+
+    double r_low, r_high;
+    if(log_scale) {
+      r_low = rmin * pow(ratio, ir);
+      r_high = rmin * pow(ratio, ir + 1);
+    } else {
+      r_low = rmin + lin_dr * ir;
+      r_high = rmin + lin_dr * (ir + 1);
+    }
+
+    auto shell_volume = (4.0 / 3.0) * M_PI;
+    shell_volume *= (r_high * r_high * r_high - r_low * r_low * r_low);
+
+    auto norm = npair * shell_volume / V_box;
+    norm *= (0.5 * mu_range);
+
+    for(int imu = 0; imu < nmu; imu++) {
+      rr_pair[ir * nmu + imu] = norm / static_cast<double>(nmu);
+    }
+  }
+}
+
+void correlation::calc_ideal_spsp_pair(uint64_t npair)
+{
+  auto nxi = dd_pair.size();
+  rr_pair.assign(nxi, 0.0);
+
+  double V_box = 1.0;
+
+#pragma omp parallel for collapse(2)
+  for(int is = 0; is < nsperp; is++) {
+    for(int ip = 0; ip < nspara; ip++) {
+
+      double s_perp_low = sperp_min + dsperp * is;
+      double s_perp_high = sperp_min + dsperp * (is + 1);
+
+      double s_para_low = spara_min + dspara * ip;
+      double s_para_high = spara_min + dspara * (ip + 1);
+
+      double cyl_volume = M_PI;
+      cyl_volume *= (s_perp_high * s_perp_high - s_perp_low * s_perp_low);
+      cyl_volume *= (s_para_high - s_para_low);
+
+      double norm = npair * cyl_volume / V_box;
+      rr_pair[is * nspara + ip] = norm;
+    }
+  }
+}
+
+void correlation::calc_xi_from_pair(uint64_t ngrp)
+{
+  auto nxi = dd_pair.size();
+  auto nrand = ngrp * nrand_factor;
+  auto f = (double)nrand / (double)ngrp;
+  auto f2 = f * f;
+
+  if(estimator == "ideal") {
+    for(int i = 0; i < nxi; i++) {
+      if(rr_pair[i] != 0.0) {
+        xi[i] = dd_pair[i] / rr_pair[i] - 1.0;
+      }
+    }
+
+  } else if(estimator == "RR") {
+    for(int i = 0; i < nxi; i++) {
+      if(rr_pair[i] != 0.0) {
+        xi[i] = f2 * dd_pair[i] / rr_pair[i] - 1.0;
+      }
+    }
+
+  } else if(estimator == "LS") {
+    for(int i = 0; i < nxi; i++) {
+      if(rr_pair[i] != 0.0) {
+        xi[i] = (f2 * dd_pair[i] - 2.0 * f * dr_pair[i] + rr_pair[i]) / rr_pair[i];
+      }
+    }
+  }
+}
+
+void correlation::calc_xi_from_pair(uint64_t ngrp1, uint64_t ngrp2)
+{
+  assert(estimator != "ideal");
+
+  auto nxi = dd_pair.size();
+  auto nrand1 = ngrp1 * nrand_factor;
+  auto nrand2 = ngrp2 * nrand_factor;
+  auto f1 = (double)nrand1 / (double)ngrp1;
+  auto f2 = (double)nrand2 / (double)ngrp2;
+  auto f12 = f1 * f2;
+
+  if(estimator == "RR") {
+    for(int i = 0; i < nxi; i++) {
+      if(rr_pair[i] != 0.0) {
+        xi[i] = f12 * dd_pair[i] / rr_pair[i] - 1.0;
+      }
+    }
+
+  } else if(estimator == "LS") {
+    for(int i = 0; i < nxi; i++) {
+      if(rr_pair[i] != 0.0) {
+        xi[i] = (f12 * dd_pair[i] - (f1 * dr_pair[i] + f2 * dr2_pair[i]) + rr_pair[i]) / rr_pair[i];
+      }
+    }
+  }
+}
+
 template <typename T>
 void correlation::calc_xi(T &grp)
 {
-  if(use_LS) {
-    if(jk_block > 1) calc_xi_jk_LS_impl(grp);
-    else calc_xi_LS_impl(grp);
-  } else {
     if(jk_block > 1) calc_xi_jk_impl(grp);
     else calc_xi_impl(grp);
-  }
 }
 
 template <typename T>
@@ -541,13 +686,8 @@ void correlation::calc_xi(T &grp1, T &grp2)
     return;
   }
 
-  if(use_LS) {
-    if(jk_block > 1) calc_xi_jk_LS_impl(grp1, grp2);
-    else calc_xi_LS_impl(grp1, grp2);
-  } else {
     if(jk_block > 1) calc_xi_jk_impl(grp1, grp2);
     else calc_xi_impl(grp1, grp2);
-  }
 }
 
 template <typename T>
@@ -920,9 +1060,6 @@ std::vector<double> correlation::calc_pair_spsp(const double w, G &grp, C &cell_
 
                   const double spara = dz;                           //  r * mu;
                   const double sperp = std::sqrt(dx * dx + dy * dy); //  sqrt(r^2 - spara^2);
-
-                  // const int iperp = static_cast<int>((sperp - sperp_min) / dsperp);
-                  // const int ipara = static_cast<int>((spara - spara_min) / dspara);
                   const int iperp = std::floor((sperp - sperp_min) / dsperp);
                   const int ipara = std::floor((spara - spara_min) / dspara);
 
@@ -953,21 +1090,102 @@ std::vector<double> correlation::calc_pair_spsp(const double w, G &grp, C &cell_
   return thr_pair_spsp;
 }
 
+template <typename G, typename C>
+std::vector<double> correlation::calc_pair_spsp(const double w, G &grp1, G &grp2, C &cell_list1, C &cell_list2, int ncx,
+                                                int ncy, int ncz, const std::string label)
+{
+  const int nc3 = ncx * ncy * ncz;
+    int nthread = omp_get_num_threads();
+    int ithread = omp_get_thread_num();
+  uint64_t progress = 0;
+    uint64_t progress_thread = nc3 / nthread;
+  uint64_t progress_div = 1 + progress_thread / 200;
+
+  std::vector<double> thr_pair_spsp(nsperp * nspara, 0.0); // [iperp,ipara]
+
+#pragma omp for collapse(3) schedule(dynamic)
+  for(int ix = 0; ix < ncx; ix++) {
+    for(int iy = 0; iy < ncy; iy++) {
+      for(int iz = 0; iz < ncz; iz++) {
+
+        const int cell_id = iz + ncz * (iy + ncy * ix);
+        const auto &clist = cell_list1[cell_id];
+
+#pragma omp unroll
+        for(int jx = -ndiv_1d; jx <= ndiv_1d; jx++) {
+          for(int jy = -ndiv_1d; jy <= ndiv_1d; jy++) {
+            for(int jz = -ndiv_1d; jz <= ndiv_1d; jz++) {
+
+              const int nix = ((ix + jx) + ncx) % ncx;
+              const int niy = ((iy + jy) + ncy) % ncy;
+              const int niz = ((iz + jz) + ncz) % ncz;
+
+              const int ncell_id = niz + ncz * (niy + ncy * nix);
+              const auto &nlist = cell_list2[ncell_id];
+
+              for(int ii : clist) {
+                for(int jj : nlist) {
+
+                  double dx = grp2[jj].xpos - grp1[ii].xpos;
+                  double dy = grp2[jj].ypos - grp1[ii].ypos;
+                  double dz = grp2[jj].zpos - grp1[ii].zpos;
+
+                  dx -= std::nearbyint(dx);
+                  dy -= std::nearbyint(dy);
+                  dz -= std::nearbyint(dz);
+
+                  const double spara = dz;                           //  r * mu;
+                  const double sperp = std::sqrt(dx * dx + dy * dy); //  sqrt(r^2 - spara^2);
+                  const int iperp = std::floor((sperp - sperp_min) / dsperp);
+                  const int ipara = std::floor((spara - spara_min) / dspara);
+
+                  if(iperp >= 0 && iperp < nsperp) {
+                    if(ipara >= 0 && ipara < nspara) {
+                      auto idx = ipara + nspara * iperp;
+                      thr_pair_spsp[idx] += w;
+                    } // iperp
+                  } // ipara
+  }
+      }
+            }
+          }
+        } // dx, dy, dz
+
+        if(ithread == 0) {
+          progress++;
+          if(progress % progress_div == 0) {
+            std::cerr << "\r\033[2K " << label
+                      << " (sperp,spara) : " << (double)100.0 * progress / (double)progress_thread << " [%]";
+    }
+  }
+      }
+    }
+  } // ix, iy, iz
+
+  if(ithread == 0) std::cerr << std::endl;
+  return thr_pair_spsp;
+}
+
 template <typename T>
 void correlation::calc_xi_impl(T &grp)
 {
-  symmetry = true;
+  bool use_random = (estimator != "ideal");
   uint64_t ngrp = grp.size();
+  uint64_t nrand = 0;
+
   dd_pair.assign(nr, 0.0);
+  rr_pair.assign(nr, 0.0);
+  if(estimator == "LS") dr_pair.assign(nr, 0.0);
+
   xi.assign(nr, 0.0);
 
-  /* Here only the global box size */
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
-  std::vector<std::vector<int>> cell_list(nc3);
+  std::vector<std::vector<int>> cell_list(nc3), cell_list_rand;
+  std::vector<group> rand;
 
   for(uint64_t i = 0; i < ngrp; i++) {
     const int ix = get_cell_index(grp[i].xpos, ncx);
@@ -977,72 +1195,78 @@ void correlation::calc_xi_impl(T &grp)
     cell_list[cell_id].push_back(i);
   }
 
+  if(use_random) {
+    nrand = ngrp * nrand_factor;
+    cell_list_rand.resize(nc3);
+    groupcatalog g;
+    rand = g.set_random_group(nrand);
+
+    for(uint64_t i = 0; i < nrand; i++) {
+      const int ix = get_cell_index(rand[i].xpos, ncx);
+      const int iy = get_cell_index(rand[i].ypos, ncy);
+      const int iz = get_cell_index(rand[i].zpos, ncz);
+      const int cell_id = iz + ncz * (iy + ncy * ix);
+      cell_list_rand[cell_id].push_back(i);
+    }
+  }
+
 #pragma omp parallel
   {
-
     int nthread = omp_get_num_threads();
     int ithread = omp_get_thread_num();
-    uint64_t progress_thread = nc3 / nthread;
-
-    if(ithread == 0)
-      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
-                << std::endl;
+    if(ithread == 0) std::cerr << "# nc^3 = " << nc3 << " divided into " << nthread << " threads." << std::endl;
 
     auto thr_dd_pair = calc_pair(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
+    decltype(thr_dd_pair) thr_rr_pair, thr_dr_pair;
+
+    if(use_random) {
+      thr_rr_pair = calc_pair(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+      if(estimator == "LS") thr_dr_pair = calc_pair(0.5, grp, rand, cell_list, cell_list_rand, ncx, ncy, ncz, "DR");
+    }
 
 #pragma omp critical
     {
-      for(int ir = 0; ir < nr; ++ir) {
-        dd_pair[ir] += thr_dd_pair[ir];
+      for(size_t i = 0; i < nr; i++) dd_pair[i] += thr_dd_pair[i];
+      if(use_random) {
+        for(size_t i = 0; i < nr; i++) rr_pair[i] += thr_rr_pair[i];
+        if(estimator == "LS")
+          for(size_t i = 0; i < nr; i++) dr_pair[i] += thr_dr_pair[i];
       }
     } // omp critical
   } // omp parallel
 
-  // double V_box = lbox * lbox * lbox;
-  double V_box = 1.0;
-  double N_pairs = (double)ngrp * (ngrp - 1);
-  if(symmetry) N_pairs *= 0.5;
-
-  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
-
-  for(int ir = 0; ir < nr; ir++) {
-    double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
-    double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
-    double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
-    double norm = N_pairs * shell_volume / V_box;
-    xi[ir] = dd_pair[ir] / norm - 1.0;
+  if(estimator == "ideal") {
+    auto npair = static_cast<double>(ngrp) * (ngrp - 1);
+    if(symmetry) npair *= 0.5;
+    calc_ideal_pair(npair); // calc ideal rr_pair
   }
-}
 
-#if 0
-/*
- Note: This implementation normalizes using ideal shell/cylinder volumes
- without random catalogs (RR).
-
- - May over/underestimate xi on small scales (few pairs) or large scales
-   (periodic boundary effects).
- - Cell-based decomposition can mismatch actual pair distribution
-   vs. expected volume.
-
- Recommended to use RR-based normalization (below) for robust xi = DD / RR - 1.
-*/
+  calc_xi_from_pair(ngrp); // calc xi
+    }
 
 template <typename T>
 void correlation::calc_xi_smu_impl(T &grp)
 {
-  symmetry = true;
+  bool use_random = (estimator != "ideal");
 
+  uint64_t nn = nr * nmu;
   uint64_t ngrp = grp.size();
-  dd_pair.assign(nr * nmu, 0.0);
-  xi.assign(nr * nmu, 0.0);
+  uint64_t nrand = 0;
 
-  /* Here only the global box size */
+  std::vector<std::vector<int>> cell_list, cell_list_rand;
+  std::vector<group> rand;
+
+  dd_pair.assign(nn, 0.0);
+  rr_pair.assign(nn, 0.0);
+  if(estimator == "LS") dr_pair.assign(nn, 0.0);
+  xi.assign(nn, 0.0);
+
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
-  std::vector<std::vector<int>> cell_list(nc3);
+  cell_list.resize(nc3);
 
   for(uint64_t i = 0; i < ngrp; i++) {
     const int ix = get_cell_index(grp[i].xpos, ncx);
@@ -1052,155 +1276,11 @@ void correlation::calc_xi_smu_impl(T &grp)
     cell_list[cell_id].push_back(i);
   }
 
-#pragma omp parallel
-  {
-
-    int nthread = omp_get_num_threads();
-    int ithread = omp_get_thread_num();
-    uint64_t progress_thread = nc3 / nthread;
-
-    if(ithread == 0)
-      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
-                << std::endl;
-
-    auto thr_dd_pair_smu = calc_pair_smu(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
-
-#pragma omp critical
-    {
-      for(int ir = 0; ir < nr * nmu; ++ir) { // not nr
-        dd_pair[ir] += thr_dd_pair_smu[ir];
-      }
-    } // omp critical
-  } // omp parallel
-
-  // double V_box = lbox * lbox * lbox;
-  double V_box = 1.0;
-  double N_pairs = (double)ngrp * (ngrp - 1);
-  if(symmetry) N_pairs *= 0.5;
-
-  double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
-
-  for(int ir = 0; ir < nr; ir++) {
-    double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
-    double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
-    r_low = r_low * r_low * r_low;
-    r_high = r_high * r_high * r_high;
-    double shell_volume = (4.0 / 3.0) * M_PI * (r_high - r_low);
-
-    for(int imu = 0; imu < nmu; imu++) {
-      double mu_low = mumin + imu * dmu;
-      double mu_high = mumin + (imu + 1) * dmu;
-      double mu_factor = (mu_high - mu_low) * 0.5; // 0.5=1/(cos_theta_max-cos_theta_min)=1/(1-(-1))
-      double bin_volume = shell_volume * mu_factor;
-
-      double norm = N_pairs * bin_volume / V_box;
-      int idx = imu + nmu * ir;
-      xi[idx] = dd_pair[idx] / norm - 1.0;
-    }
-  }
-}
-
-template <typename T>
-void correlation::calc_xi_spsp_impl(T &grp)
-{
-  symmetry = true;
-
-  uint64_t ngrp = grp.size();
-  dd_pair.assign(nsperp * nspara, 0.0);
-  xi.assign(nsperp * nspara, 0.0);
-
-  /* Here only the global box size */
-  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
-  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
-  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
-  const int nc3 = ncx * ncy * ncz;
-
-  std::vector<std::vector<int>> cell_list(nc3);
-
-  for(uint64_t i = 0; i < ngrp; i++) {
-    const int ix = get_cell_index(grp[i].xpos, ncx);
-    const int iy = get_cell_index(grp[i].ypos, ncy);
-    const int iz = get_cell_index(grp[i].zpos, ncz);
-    const int cell_id = iz + ncz * (iy + ncy * ix);
-    cell_list[cell_id].push_back(i);
-  }
-
-#pragma omp parallel
-  {
-
-    int nthread = omp_get_num_threads();
-    int ithread = omp_get_thread_num();
-    uint64_t progress_thread = nc3 / nthread;
-
-    if(ithread == 0)
-      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
-                << std::endl;
-
-    auto thr_dd_pair_spsp = calc_pair_spsp(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
-
-#pragma omp critical
-    {
-      for(int ir = 0; ir < nsperp * nspara; ++ir) { // not nr
-        dd_pair[ir] += thr_dd_pair_spsp[ir];
-      }
-    } // omp critical
-  } // omp parallel
-
-  // double V_box = lbox * lbox * lbox;
-  double V_box = 1.0;
-  double N_pairs = (double)ngrp * (ngrp - 1);
-  if(symmetry) N_pairs *= 0.5;
-
-  for(int iperp = 0; iperp < nsperp; iperp++) {
-    double sperp_low = sperp_min + iperp * dsperp;
-    double sperp_high = sperp_min + (iperp + 1) * dsperp;
-    double sperp_mid = 0.5 * (sperp_low + sperp_high);
-    double dsperp_bin = sperp_high - sperp_low;
-
-    for(int ipara = 0; ipara < nspara; ipara++) {
-      double spara_low = spara_min + ipara * dspara;
-      double spara_high = spara_min + (ipara + 1) * dspara;
-      double dspara_bin = spara_high - spara_low;
-
-      double bin_volume = 2.0 * M_PI * sperp_mid * dsperp_bin * dspara_bin;
-      double norm = N_pairs * bin_volume / V_box;
-      int idx = ipara + nspara * iperp;
-      xi[idx] = dd_pair[idx] / norm - 1.0;
-    }
-  }
-}
-
-#else
-
-template <typename T>
-void correlation::calc_xi_smu_impl(T &grp)
-{
-  uint64_t ngrp = grp.size();
-  uint64_t nrand = ngrp * nrand_factor;
-
-  dd_pair.assign(nr * nmu, 0.0);
-  rr_pair.assign(nr * nmu, 0.0);
-  xi.assign(nr * nmu, 0.0);
-
-  groupcatalog g;
-  auto rand = g.set_random_group(nrand);
-
-  /* Here only the global box size */
-  const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
-  const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
-  const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
-  const int nc3 = ncx * ncy * ncz;
-
-  std::vector<std::vector<int>> cell_list(nc3);
-  std::vector<std::vector<int>> cell_list_rand(nc3);
-
-  for(uint64_t i = 0; i < ngrp; i++) {
-    const int ix = get_cell_index(grp[i].xpos, ncx);
-    const int iy = get_cell_index(grp[i].ypos, ncy);
-    const int iz = get_cell_index(grp[i].zpos, ncz);
-    const int cell_id = iz + ncz * (iy + ncy * ix);
-    cell_list[cell_id].push_back(i);
-  }
+  if(use_random) {
+    nrand = ngrp * nrand_factor;
+    cell_list_rand.resize(nc3);
+    groupcatalog g;
+    rand = g.set_random_group(nrand);
 
   for(uint64_t i = 0; i < nrand; i++) {
     const int ix = get_cell_index(rand[i].xpos, ncx);
@@ -1209,60 +1289,67 @@ void correlation::calc_xi_smu_impl(T &grp)
     const int cell_id = iz + ncz * (iy + ncy * ix);
     cell_list_rand[cell_id].push_back(i);
   }
+  }
 
 #pragma omp parallel
   {
-
     int nthread = omp_get_num_threads();
     int ithread = omp_get_thread_num();
-    uint64_t progress_thread = nc3 / nthread;
-
-    if(ithread == 0)
-      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
-                << std::endl;
+    if(ithread == 0) std::cerr << "# nc^3 = " << nc3 << " divided into " << nthread << " threads." << std::endl;
 
     auto thr_dd_pair_smu = calc_pair_smu(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
-    auto thr_rr_pair_smu = calc_pair_smu(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+    decltype(thr_dd_pair_smu) thr_rr_pair_smu, thr_dr_pair_smu;
+
+    if(use_random) {
+      thr_rr_pair_smu = calc_pair_smu(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+      if(estimator == "LS")
+        thr_dr_pair_smu = calc_pair_smu(0.5, grp, rand, cell_list, cell_list_rand, ncx, ncy, ncz, "DR");
+    }
 
 #pragma omp critical
     {
-      for(int ir = 0; ir < nr * nmu; ++ir) { // not nr
-        dd_pair[ir] += thr_dd_pair_smu[ir];
-        rr_pair[ir] += thr_rr_pair_smu[ir];
+      for(size_t i = 0; i < nn; i++) dd_pair[i] += thr_dd_pair_smu[i];
+      if(use_random) {
+        for(size_t i = 0; i < nn; i++) rr_pair[i] += thr_rr_pair_smu[i];
+        if(estimator == "LS")
+          for(size_t i = 0; i < nn; i++) dr_pair[i] += thr_dr_pair_smu[i];
       }
     } // omp critical
   } // omp parallel
 
-  for(int ir = 0; ir < nr; ir++) {
-    for(int imu = 0; imu < nmu; imu++) {
-      int idx = imu + nmu * ir;
-      auto rr_norm = rr_pair[idx] / nrand_factor;
-      xi[idx] = dd_pair[idx] / (rr_norm + 1e-10) - 1.0;
+  if(estimator == "ideal") {
+    auto npair = ngrp * (ngrp - 1);
+    if(symmetry) npair *= 0.5;
+    calc_ideal_smu_pair(npair); // calc ideal rr_pair
     }
-  }
+
+  calc_xi_from_pair(ngrp); // calc xi
 }
 
 template <typename T>
 void correlation::calc_xi_spsp_impl(T &grp)
 {
+  bool use_random = (estimator != "ideal");
+
+  uint64_t nn = nsperp * nspara;
   uint64_t ngrp = grp.size();
-  uint64_t nrand = ngrp * nrand_factor;
+  uint64_t nrand = 0;
 
-  dd_pair.assign(nsperp * nspara, 0.0);
-  rr_pair.assign(nsperp * nspara, 0.0);
-  xi.assign(nsperp * nspara, 0.0);
+  std::vector<std::vector<int>> cell_list, cell_list_rand;
+  std::vector<group> rand;
 
-  groupcatalog g;
-  auto rand = g.set_random_group(nrand);
+  dd_pair.assign(nn, 0.0);
+  rr_pair.assign(nn, 0.0);
+  if(estimator == "LS") dr_pair.assign(nn, 0.0);
+  xi.assign(nn, 0.0);
 
-  /* Here only the global box size */
+  /* cell list setup */
   const int ncx = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int ncy = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int ncz = ndiv_1d * std::max(static_cast<int>(1.0 / rmax), 1);
   const int nc3 = ncx * ncy * ncz;
 
-  std::vector<std::vector<int>> cell_list(nc3);
-  std::vector<std::vector<int>> cell_list_rand(nc3);
+  cell_list.resize(nc3);
 
   for(uint64_t i = 0; i < ngrp; i++) {
     const int ix = get_cell_index(grp[i].xpos, ncx);
@@ -1272,6 +1359,12 @@ void correlation::calc_xi_spsp_impl(T &grp)
     cell_list[cell_id].push_back(i);
   }
 
+  if(use_random) {
+    nrand = ngrp * nrand_factor;
+    cell_list_rand.resize(nc3);
+    groupcatalog g;
+    rand = g.set_random_group(nrand);
+
   for(uint64_t i = 0; i < nrand; i++) {
     const int ix = get_cell_index(rand[i].xpos, ncx);
     const int iy = get_cell_index(rand[i].ypos, ncy);
@@ -1279,40 +1372,44 @@ void correlation::calc_xi_spsp_impl(T &grp)
     const int cell_id = iz + ncz * (iy + ncy * ix);
     cell_list_rand[cell_id].push_back(i);
   }
+  }
 
 #pragma omp parallel
   {
-
     int nthread = omp_get_num_threads();
     int ithread = omp_get_thread_num();
-    uint64_t progress_thread = nc3 / nthread;
-
     if(ithread == 0)
-      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << progress_thread << " in " << nthread << " threads."
+      std::cerr << "# nc^3, ngrp_thread = " << nc3 << ", " << (nc3 / nthread) << " in " << nthread << " threads."
                 << std::endl;
 
     auto thr_dd_pair_spsp = calc_pair_spsp(1.0, grp, cell_list, ncx, ncy, ncz, "DD");
-    auto thr_rr_pair_spsp = calc_pair_spsp(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+    decltype(thr_dd_pair_spsp) thr_rr_pair_spsp, thr_dr_pair_spsp;
+
+    if(use_random) {
+      thr_rr_pair_spsp = calc_pair_spsp(1.0, rand, cell_list_rand, ncx, ncy, ncz, "RR");
+      if(estimator == "LS")
+        thr_dr_pair_spsp = calc_pair_spsp(0.5, grp, rand, cell_list, cell_list_rand, ncx, ncy, ncz, "DR");
+    }
 
 #pragma omp critical
     {
-      for(int ir = 0; ir < nsperp * nspara; ++ir) { // not nr
-        dd_pair[ir] += thr_dd_pair_spsp[ir];
-        rr_pair[ir] += thr_rr_pair_spsp[ir];
+      for(size_t i = 0; i < nn; i++) dd_pair[i] += thr_dd_pair_spsp[i];
+      if(use_random) {
+        for(size_t i = 0; i < nn; i++) rr_pair[i] += thr_rr_pair_spsp[i];
+        if(estimator == "LS")
+          for(size_t i = 0; i < nn; i++) dr_pair[i] += thr_dr_pair_spsp[i];
       }
     } // omp critical
   } // omp parallel
 
-  for(int iperp = 0; iperp < nsperp; iperp++) {
-    for(int ipara = 0; ipara < nspara; ipara++) {
-      int idx = ipara + nspara * iperp;
-      auto rr_norm = rr_pair[idx] / nrand_factor;
-      xi[idx] = dd_pair[idx] / (rr_norm + 1e-10) - 1.0;
+  if(estimator == "ideal") {
+    auto npair = static_cast<double>(ngrp) * (ngrp - 1);
+    if(symmetry) npair *= 0.5;
+    calc_ideal_spsp_pair(npair); // calc ideal rr_pair
     }
-  }
-}
 
-#endif
+  calc_xi_from_pair(ngrp); // calc xi
+  }
 
 template <typename T>
 void correlation::calc_xi_impl(T &grp1, T &grp2)
@@ -1365,21 +1462,21 @@ void correlation::calc_xi_impl(T &grp1, T &grp2)
 
 #pragma omp critical
     {
-      for(int ir = 0; ir < nr; ++ir) {
+      for(int ir = 0; ir < nr; ir++) {
         dd_pair[ir] += thr_dd_pair[ir];
       }
     } // omp critical
   } // omp parallel
 
   double V_box = 1.0;
-  double N_pairs = (double)ngrp1 * (double)ngrp2;
+  double npair = (double)ngrp1 * (double)ngrp2;
   double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
 
   for(int ir = 0; ir < nr; ir++) {
     double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
     double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
     double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
-    double norm = N_pairs * shell_volume / V_box;
+    double norm = npair * shell_volume / V_box;
     xi[ir] = dd_pair[ir] / norm - 1.0;
   }
 }
@@ -1849,14 +1946,14 @@ void correlation::resample_jk(T &grp)
 
   for(int iblock = 0; iblock < nblock; iblock++) {
     int64_t length = block_end[iblock] - block_start[iblock];
-    double N_pairs = (double)(ngrp - length) * ((ngrp - length) - 1) / 2.0;
+    double npair = (double)(ngrp - length) * ((ngrp - length) - 1) / 2.0;
     double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
 
     for(int ir = 0; ir < nr; ir++) {
       double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
       double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
       double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
-      double norm = N_pairs * shell_volume / V_box;
+      double norm = npair * shell_volume / V_box;
       xi_jk[iblock][ir] = dd_pair_jk[iblock][ir] / norm - 1.0;
     }
   }
@@ -1934,14 +2031,14 @@ void correlation::resample_jk(T &grp1, T &grp2)
     int64_t length1 = block_end[iblock] - block_start[iblock];
     int64_t length2 = block_end2[iblock] - block_start2[iblock];
 
-    double N_pairs = (double)(ngrp1 - length1) * (double)(ngrp2 - length2);
+    double npair = (double)(ngrp1 - length1) * (double)(ngrp2 - length2);
     double dr = (log_scale) ? (log(rmax / rmin) / nr) : ((rmax - rmin) / nr);
 
     for(int ir = 0; ir < nr; ir++) {
       double r_low = (log_scale) ? (rmin * exp(ir * dr)) : (rmin + ir * dr);
       double r_high = (log_scale) ? (rmin * exp((ir + 1) * dr)) : (rmin + (ir + 1) * dr);
       double shell_volume = (4.0 / 3.0) * M_PI * (r_high * r_high * r_high - r_low * r_low * r_low);
-      double norm = N_pairs * shell_volume / V_box;
+      double norm = npair * shell_volume / V_box;
       xi_jk[iblock][ir] = dd_pair_jk[iblock][ir] / norm - 1.0;
     }
   }
@@ -2710,18 +2807,11 @@ void correlation::output_xi(std::string filename)
              << dr_pair[ir] << " " << rr_pair[ir] << "\n";
       }
     } else {
-      if(dd_pair.size() > 0) {
-        fout << "# r[Mpc/h] xi DD" << std::endl;
+      fout << "# r[Mpc/h] xi DD RR" << std::endl;
         for(int ir = 0; ir < nr; ir++) {
           double rad = rcen[ir] * lbox;
-          fout << std::scientific << std::setprecision(10) << rad << " " << xi[ir] << " " << dd_pair[ir] << "\n";
-        }
-      } else {
-        fout << "# r[Mpc/h] xi" << std::endl;
-        for(int ir = 0; ir < nr; ir++) {
-          double rad = rcen[ir] * lbox;
-          fout << std::scientific << std::setprecision(10) << rad << " " << xi[ir] << "\n";
-        }
+        fout << std::scientific << std::setprecision(10) << rad << " " << xi[ir] << " " << dd_pair[ir] << " "
+             << rr_pair[ir] << "\n";
       }
     }
 

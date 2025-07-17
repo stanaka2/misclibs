@@ -4,18 +4,27 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <random>
 #include <cassert>
 
 #include "field.hpp"
+#include "cosm_tools.hpp"
 #include "util.hpp"
 
 #include "gadget_header.hpp"
 #define SKIP fin.read((char *)&dummy, sizeof(int));
 
-struct particle_pot_str {
+struct particle_str {
   float pos[3];
-  float pot, pot_tree, pot_pm;
-  uint64_t id;
+  // uint64_t id;
+  bool in_flag = true; // If true, not ghost region in this particle
+};
+
+struct particle_vp_str {
+  float pos[3];
+  float vel[3];
+  float pot;
+  //  uint64_t id;
   bool in_flag = true; // If true, not ghost region in this particle
 };
 
@@ -31,8 +40,14 @@ public:
   double lbox;
   int nmesh;
 
+  double sampling_rate = 1.0;
+
   /* 1:NGP, 2:CIC, 3:TSC*/
   int scheme = -1;
+
+  std::string los_axis = "z";
+  bool do_RSD = false;  // Redshift-space distortion effect
+  bool do_Gred = false; // Gravitational redshift effect
 
   std::vector<T> pdata;
 
@@ -88,17 +103,25 @@ public:
     ptcl_mass = h.mass[1] * 1.0e+10;
   }
 
-  void load_gdt_ptcl_pos(std::string FileBase)
+  void load_gdt_ptcl(std::string FileBase)
   {
-    int dummy;
-    gadget::header htmp = h; // initialization by rank 0 header
-    std::vector<int> filenum_list;
+    constexpr bool has_vp = std::is_same_v<T, particle_vp_str>;
+    if(do_RSD || do_Gred) assert(has_vp);
 
+    int dummy;
+    gadget::header htmp = h;
+    std::vector<int> filenum_list;
     for(int i = 0; i < nfiles; i++) filenum_list.push_back(i);
+
+    uint64_t neff = npart_tot * sampling_rate;
+    std::cerr << "Sampling rate : " << sampling_rate << std::endl;
+    std::cerr << "N effective : " << neff << std::endl;
+    pdata.reserve(neff);
 
     std::cerr << "Reading gadget snapshot files ...";
 
-    pdata.reserve((long long int)(npart_tot));
+    std::mt19937 rng(100);
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
 
     for(auto itr = filenum_list.begin(); itr != filenum_list.end(); ++itr) {
       std::cerr << "read Gadget snapshot : " << FileBase + "." + itos(*itr) << "..." << std::endl;
@@ -111,46 +134,94 @@ public:
 
       uint64_t np = htmp.npart[1];
 
-      T pdata1;
       std::vector<float> pos(3 * np);
-
       SKIP;
       fin.read((char *)&pos[0], 3 * np * sizeof(float));
       SKIP;
+
+      std::vector<float> vel;
+      std::vector<float> pot;
+
+      if(do_RSD) {
+        vel.resize(3 * np);
+        SKIP;
+        fin.read((char *)&vel[0], 3 * np * sizeof(float));
+        SKIP;
+      } else {
+        fin.seekg(3 * np * sizeof(float) + 2 * sizeof(int), std::ios_base::cur);
+      }
+
+      if(do_Gred) {
+        fin.seekg(np * sizeof(uint64_t) + 2 * sizeof(int), std::ios_base::cur);
+        pot.resize(2 * np);
+        SKIP;
+        fin.read((char *)&pot[0], 2 * np * sizeof(float));
+        SKIP;
+      }
 
       fin.close();
 
       double boxsize = h.BoxSize;
 
-      for(int i = 0; i < np; i++) {
+      for(uint64_t i = 0; i < np; i++) {
+
+        if(sampling_rate < 1.0 && dist(rng) > sampling_rate) continue;
+
+        T pdata1;
+
         for(int j = 0; j < 3; j++) {
           pdata1.pos[j] = pos[3 * i + j];
+          if(pdata1.pos[j] < 0.0) pdata1.pos[j] += boxsize;
+          if(pdata1.pos[j] >= boxsize) pdata1.pos[j] -= boxsize;
+        }
 
-          if(pdata1.pos[j] < 0.0) pdata1.pos[j] += (double)boxsize;
-          if(pdata1.pos[j] >= boxsize) pdata1.pos[j] -= (double)boxsize;
+        if constexpr(has_vp) {
+          if(do_RSD) {
+            for(int j = 0; j < 3; j++) {
+              pdata1.vel[j] = vel[3 * i + j];
+            }
+          }
+
+          if(do_Gred) {
+            // pdata1.id = idx[i];
+            auto pot_tree = pot[2 * i];
+            auto pot_pm = pot[2 * i + 1];
+            pdata1.pot = pot_tree + pot_pm;
+          }
         }
         pdata.push_back(pdata1);
       }
     }
+
+    pdata.shrink_to_fit();
+
     h = htmp;
     std::cerr << " done." << std::endl;
   }
 
-  void load_gdt_ptcl_pos_pot(std::string FileBase)
+  void load_gdt_and_shift_ptcl(std::string FileBase)
   {
+    // vel, pot does not hold the structure
+    static_assert(std::is_same_v<T, particle_str>, "T must be particle_str in this function");
+
     int dummy;
-    gadget::header htmp = h; // initialization by rank 0 header
-    std::vector<int> filenum_list;
+    gadget::header htmp = h;
+    std::vector<int> filenum_list(nfiles);
+    std::iota(filenum_list.begin(), filenum_list.end(), 0);
 
-    for(int i = 0; i < nfiles; i++) filenum_list.push_back(i);
+    uint64_t neff = npart_tot * sampling_rate;
+    std::cerr << "Sampling rate : " << sampling_rate << std::endl;
+    std::cerr << "N effective : " << neff << std::endl;
+    pdata.reserve(neff);
 
-    std::cerr << "Reading gadget snapshot files ...";
+    std::cerr << "Reading gadget snapshot files ..." << std::endl;
 
-    pdata.reserve((long long int)(npart_tot));
+    std::mt19937 rng(100);
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
 
-    for(auto itr = filenum_list.begin(); itr != filenum_list.end(); ++itr) {
-      std::cerr << "read Gadget snapshot : " << FileBase + "." + itos(*itr) << "..." << std::endl;
-      std::string file_buff = detect_hierarchical_input(FileBase, *itr);
+    for(int ifile : filenum_list) {
+      std::cerr << "read Gadget snapshot : " << FileBase + "." + itos(ifile) << "..." << std::endl;
+      std::string file_buff = detect_hierarchical_input(FileBase, ifile);
       std::ifstream fin(file_buff.c_str(), std::ios::binary);
 
       SKIP;
@@ -158,58 +229,66 @@ public:
       SKIP;
 
       uint64_t np = htmp.npart[1];
-
-      T pdata1;
       std::vector<float> pos(3 * np);
-      std::vector<uint64_t> idx(np);
-      std::vector<float> pot;
-
       SKIP;
       fin.read((char *)&pos[0], 3 * np * sizeof(float));
       SKIP;
 
-      // Skip velocity information.
-      // header + dummy (2+2+2) + pos + vel
-      std::streamoff seek_count = sizeof(gadget::header) + (6 * sizeof(int)) + (6 * sizeof(float) * np);
-      fin.seekg(seek_count, std::ios_base::beg); // Probably faster than std::ios_base::cur.
+      std::vector<float> vel;
+      if(do_RSD) {
+        vel.resize(3 * np);
+        SKIP;
+        fin.read((char *)&vel[0], 3 * np * sizeof(float));
+        SKIP;
+      } else {
+        fin.seekg(3 * np * sizeof(float) + 2 * sizeof(int), std::ios_base::cur);
+      }
 
-      SKIP;
-      fin.read((char *)&idx[0], np * sizeof(uint64_t));
-      SKIP;
-
-      pot.resize(2 * np);
-      SKIP;
-      fin.read((char *)&pot[0], 2 * np * sizeof(float));
-      SKIP;
+      std::vector<float> pot;
+      if(do_Gred) {
+        fin.seekg(np * sizeof(uint64_t) + 2 * sizeof(int), std::ios_base::cur);
+        pot.resize(2 * np);
+        SKIP;
+        fin.read((char *)&pot[0], 2 * np * sizeof(float));
+        SKIP;
+      }
 
       fin.close();
 
-      double boxsize = h.BoxSize;
+      auto boxsize = h.BoxSize;
+      auto a = 1.0 / (1.0 + htmp.redshift);
+      auto Om = htmp.Omega0;
+      auto Ol = htmp.OmegaLambda;
+      auto _Ha = Ha(a, Om, Ol);
+      auto factor_RSD = (do_RSD ? 1.0 / (a * _Ha) : 0.0);
+      auto factor_Gred = (do_Gred ? cspeed / (a * _Ha) : 0.0);
 
-      for(int i = 0; i < np; i++) {
-        for(int j = 0; j < 3; j++) {
-          pdata1.pos[j] = pos[3 * i + j];
+      int los = (los_axis == "x") ? 0 : (los_axis == "y") ? 1 : 2;
 
-          if(pdata1.pos[j] < 0.0) pdata1.pos[j] += (double)boxsize;
-          if(pdata1.pos[j] >= boxsize) pdata1.pos[j] -= (double)boxsize;
+      for(uint64_t i = 0; i < np; ++i) {
+        if(sampling_rate < 1.0 && dist(rng) > sampling_rate) continue;
+
+        T pdata1;
+        for(int j = 0; j < 3; ++j) {
+          auto pos_j = pos[3 * i + j];
+          if(do_RSD && j == los) pos_j += vel[3 * i + j] * factor_RSD; // ここでのvelはGadget形式なのであとで係数修正
+          if(do_Gred && j == los) pos_j -= (pot[2 * i] + pot[2 * i + 1]) * factor_Gred;
+          if(pos_j < 0.0) pos_j += boxsize;
+          if(pos_j >= boxsize) pos_j -= boxsize;
+          pdata1.pos[j] = pos_j;
         }
-
-        pdata1.id = idx[i];
-
-        pdata1.pot_tree = pot[2 * i + 0]; // tree
-        pdata1.pot_pm = pot[2 * i + 1];   // PM
-        pdata1.pot = pdata1.pot_tree + pdata1.pot_pm;
-
         pdata.push_back(pdata1);
       }
     }
+
+    pdata.shrink_to_fit();
 
     h = htmp;
     std::cerr << " done." << std::endl;
   }
 
   template <typename U>
-  void load_gdt_and_assing(std::string FileBase, U &mesh, int type)
+  void load_gdt_and_assing(std::string FileBase, U &mesh)
   {
     check_scheme();
 
@@ -236,52 +315,112 @@ public:
 
       pdata.resize(np);
 
-      T pdata1;
       std::vector<float> pos(3 * np);
-      std::vector<uint64_t> idx(np);
-      std::vector<float> pot;
 
       SKIP;
       fin.read((char *)&pos[0], 3 * np * sizeof(float));
       SKIP;
-
-      if(type == 1) {
-        // Skip position and velocity and index information.
-        // header + dummy (2+2+2) + pos + vel
-        std::streamoff seek_count =
-            sizeof(gadget::header) + (2 * 4 * sizeof(int)) + (3 * 2 * sizeof(float) * np) + (sizeof(uint64_t) * np);
-        fin.seekg(seek_count, std::ios_base::beg); // Probably faster than std::ios_base::cur.
-
-        pot.resize(2 * np);
-        SKIP;
-        fin.read((char *)&pot[0], 2 * np * sizeof(float));
-        SKIP;
-      }
 
       fin.close();
 
       double boxsize = h.BoxSize;
 
       for(int i = 0; i < np; i++) {
-
+        T pdata1;
         for(int j = 0; j < 3; j++) {
           pdata1.pos[j] = pos[3 * i + j];
           if(pdata1.pos[j] < 0.0) pdata1.pos[j] += (double)boxsize;
           if(pdata1.pos[j] >= boxsize) pdata1.pos[j] -= (double)boxsize;
         }
-
-        if(type == 1) {
-          pdata1.pot_tree = pot[2 * i + 0]; // tree
-          pdata1.pot_pm = pot[2 * i + 1];   // PM
-          pdata1.pot = pdata1.pot_tree + pdata1.pot_pm;
-        }
-
-        pdata[i] = pdata1;
+        pdata.emplace_back(std::move(pdata1));
       }
 
-      ptcl_assign_mesh(pdata, mesh, nmesh, boxsize, ptcl_mass, type, scheme);
+      ptcl_assign_mesh(pdata, mesh, nmesh, boxsize, ptcl_mass, scheme);
 
     } // ifile loop
+
+    h = htmp;
+    std::cerr << " done." << std::endl;
+  }
+
+  template <typename U>
+  void load_gdt_and_shift_assing(std::string FileBase, U &mesh)
+  {
+    check_scheme();
+    static_assert(std::is_same_v<T, particle_str>, "T must be particle_str in this function");
+
+    int dummy;
+    gadget::header htmp = h;
+    std::vector<int> filenum_list(nfiles);
+    std::iota(filenum_list.begin(), filenum_list.end(), 0);
+
+    std::cerr << "Reading gadget snapshot files with RSD/Gred shift (no sampling)..." << std::endl;
+
+    for(int ifile : filenum_list) {
+      show_progress(ifile, nfiles, "read Gadget snapshot");
+
+      std::string file_buff = detect_hierarchical_input(FileBase, ifile);
+      std::ifstream fin(file_buff.c_str(), std::ios::binary);
+
+      SKIP;
+      fin.read((char *)&htmp, sizeof(gadget::header));
+      SKIP;
+
+      uint64_t np = htmp.npart[1];
+      std::vector<float> pos(3 * np);
+      SKIP;
+      fin.read((char *)pos.data(), 3 * np * sizeof(float));
+      SKIP;
+
+      std::vector<float> vel;
+      if(do_RSD) {
+        vel.resize(3 * np);
+        SKIP;
+        fin.read((char *)vel.data(), 3 * np * sizeof(float));
+        SKIP;
+      } else {
+        fin.seekg(3 * np * sizeof(float) + 2 * sizeof(int), std::ios_base::cur);
+      }
+
+      std::vector<float> pot;
+      if(do_Gred) {
+        fin.seekg(np * sizeof(uint64_t) + 2 * sizeof(int), std::ios_base::cur);
+        pot.resize(2 * np);
+        SKIP;
+        fin.read((char *)pot.data(), 2 * np * sizeof(float));
+        SKIP;
+      }
+
+      fin.close();
+
+      const double boxsize = h.BoxSize;
+      const double a = 1.0 / (1.0 + htmp.redshift);
+      const double Om = htmp.Omega0;
+      const double Ol = htmp.OmegaLambda;
+      const double _Ha = Ha(a, Om, Ol);
+      const double factor_RSD = do_RSD ? 1.0 / (a * _Ha) : 0.0;
+      const double factor_Gred = do_Gred ? cspeed / (a * _Ha) : 0.0;
+
+      const int los = (los_axis == "x") ? 0 : (los_axis == "y") ? 1 : 2;
+
+      std::vector<T> pdata;
+      pdata.reserve(np);
+
+      for(uint64_t i = 0; i < np; ++i) {
+        T pdata1;
+        for(int j = 0; j < 3; ++j) {
+          float pos_j = pos[3 * i + j];
+          if(do_RSD && j == los) pos_j += vel[3 * i + j] * factor_RSD;
+          if(do_Gred && j == los) pos_j -= (pot[2 * i] + pot[2 * i + 1]) * factor_Gred;
+          if(pos_j < 0.0f) pos_j += boxsize;
+          if(pos_j >= boxsize) pos_j -= boxsize;
+          pdata1.pos[j] = pos_j;
+        }
+        pdata.emplace_back(std::move(pdata1));
+      }
+
+      ptcl_assign_mesh(pdata, mesh, nmesh, boxsize, ptcl_mass, scheme);
+    }
 
     h = htmp;
     std::cerr << " done." << std::endl;

@@ -14,9 +14,6 @@ public:
   /* default arguments */
   int jk_level = 1;
   int jk_type = 0;
-  bool use_LS = false;
-  int nrand_factor = 1;
-  double sampling_rate = 0.005;
   /* end arguments */
 
   ProgOptions() = default;
@@ -37,12 +34,10 @@ protected:
   template <typename T>
   void add_to_app(T &app)
   {
-    app.add_flag("--use_LS", use_LS, "use Landy Szalay estimator")->capture_default_str();
     app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
     app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
         ->check(CLI::IsMember({0, 1}))
         ->capture_default_str();
-    app.add_option("--nrand_factor", nrand_factor, "factor of nrand to ngrp")->capture_default_str();
   }
 };
 
@@ -59,21 +54,14 @@ int main(int argc, char **argv)
   if(jk_level < 1) jk_level = 1;
   const int jk_block = jk_level * jk_level * jk_level;
 
-  auto nmesh = opt.nmesh;
   auto sampling_rate = opt.sampling_rate;
 
-  std::cout << "# input prefix " << opt.input_prefix << std::endl;
-  std::cout << "# output filename " << opt.output_filename << std::endl;
-  std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
-  std::cout << "# log_bin " << std::boolalpha << log_bin << std::endl;
-  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
-  std::cout << "# jackknife block " << jk_block << std::endl;
-  std::cout << "# Landy Szalay estimator" << std::boolalpha << opt.use_LS << std::endl;
-  if(opt.use_LS) std::cout << "# nrand factor" << std::boolalpha << opt.nrand_factor << std::endl;
-  std::cout << "# sampling_rate " << sampling_rate << std::endl;
-  std::cout << std::endl;
+  opt.print_args();
 
-  load_ptcl<particle_pot_str> snap;
+  load_ptcl<particle_str> snap;
+  snap.sampling_rate = sampling_rate;
+  snap.do_RSD = opt.do_RSD;
+  snap.do_Gred = opt.do_Gred;
   snap.read_header(opt.input_prefix);
 
   double lbox(snap.h.BoxSize);
@@ -86,20 +74,29 @@ int main(int argc, char **argv)
   }
 
   /* for density fluctuations */
-  snap.load_gdt_ptcl_pos(opt.input_prefix);
+  if(opt.do_RSD || opt.do_Gred) {
+    snap.load_gdt_and_shift_ptcl(opt.input_prefix);
+  } else {
+    snap.load_gdt_ptcl(opt.input_prefix);
+  }
+
+  groupcatalog groups;
+  groups.lbox = lbox;
+
+  // Note:
+  // Particle sampling is already performed during particle loading.
+  // Alternatively, sampling can be done during group creation.
+  // Make sure that sampling is not applied twice.
+  auto grp = groups.set_base_grp(snap.pdata);
 
   correlation cor;
-  cor.p = snap.scheme;
-  cor.lbox = lbox;
-  cor.nmesh = nmesh;
   cor.jk_block = jk_block;
   cor.jk_level = jk_level;
+  cor.jk_type = opt.jk_type;
+  cor.estimator = opt.estimator;
+  cor.nrand_factor = opt.nrand_factor;
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
-
-  auto select_idx = cor.select_indices_sampling(snap.pdata.size(), sampling_rate);
-  auto grp = cor.set_base_grp_from_ptcls(snap.pdata, select_idx);
-
   cor.calc_xi(grp);
   cor.output_xi(opt.output_filename);
 

@@ -19,8 +19,6 @@ public:
   bool half_angle = false;
   int jk_level = 1;
   int jk_type = 0;
-  bool use_LS = false;
-  int nrand_factor = 1;
   /* end arguments */
 
   bool mode_spsp = true; // default = spsp
@@ -52,12 +50,10 @@ protected:
                  "If set, calculate only the upper half-range (0<mu<1 or 0<s_para<Rmax); "
                  "if not set, calculate the full range (-1<mu<1 or -Rmax<s_para<Rmax)")
         ->capture_default_str();
-    app.add_flag("--use_LS", use_LS, "use Landy Szalay estimator")->capture_default_str();
     app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
     app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
         ->check(CLI::IsMember({0, 1}))
         ->capture_default_str();
-    app.add_option("--nrand_factor", nrand_factor, "factor of nrand to ngrp")->capture_default_str();
   }
 };
 
@@ -133,14 +129,7 @@ int main(int argc, char **argv)
 
   auto nmesh = opt.nmesh;
 
-  std::cout << "# input prefix " << opt.input_prefix << std::endl;
-  std::cout << "# base file " << base_file << std::endl;
-  std::cout << "# output filename " << opt.output_filename << std::endl;
-  std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
-  std::cout << "# Rmin, Rmax, NR " << rmin << ", " << rmax << ", " << nr << std::endl;
-  std::cout << "# mode_spsp " << opt.mode_spsp << std::endl;
-  std::cout << "# half_angle " << opt.half_angle << std::endl;
-  std::cout << std::endl;
+  opt.print_args();
 
   load_halos halos;
   halos.read_header(base_file);
@@ -184,8 +173,8 @@ int main(int argc, char **argv)
   correlation cor;
   cor.jk_block = jk_block;
   cor.jk_level = jk_level;
-  cor.use_LS = opt.use_LS;
   cor.jk_type = opt.jk_type;
+  cor.estimator = opt.estimator;
   cor.nrand_factor = opt.nrand_factor;
 
   if(opt.mode_spsp) {

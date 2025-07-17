@@ -123,8 +123,7 @@ void ptcl_assign_mesh_omp(T &ptcls, U &mesh, const int nmesh, const double lbox,
   Function that reads file input and assigns particles to the mesh
 */
 template <typename T, typename U>
-void ptcl_assign_mesh(T &ptcls, U &mesh, const int nmesh, const double lbox, const double ptcl_mass, const int valtype,
-                      const int scheme)
+void ptcl_assign_mesh(T &ptcls, U &mesh, const int nmesh, const double lbox, const double ptcl_mass, const int scheme)
 {
   int64_t nmesh_z = nmesh + 2;
   int64_t npart = ptcls.size();
@@ -135,9 +134,7 @@ void ptcl_assign_mesh(T &ptcls, U &mesh, const int nmesh, const double lbox, con
     auto ypos = ptcls[p].pos[1] / lbox;
     auto zpos = ptcls[p].pos[2] / lbox;
 
-    double _val;
-    if(valtype == 0) _val = ptcl_mass;
-    else if(valtype == 1) _val = ptcls[p].pot;
+    double _val = ptcl_mass;
 
     assert(xpos >= 0.0 && xpos <= 1.0);
     assert(ypos >= 0.0 && ypos <= 1.0);
