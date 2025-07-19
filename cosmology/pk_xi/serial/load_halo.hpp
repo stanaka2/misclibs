@@ -24,14 +24,6 @@ public:
   /* 1:NGP, 2:CIC, 3:TSC*/
   int scheme = -1;
 
-  /* body */
-  std::vector<float> pos, vel; // x3
-  std::vector<float> mvir, rvir;
-
-  std::vector<int64_t> id, parent_id;
-  std::vector<int> level;
-  std::vector<float> pot, pot_tree, pot_pm; // pot is pot_total
-
   ~load_halos() {}
 
   void print_header();

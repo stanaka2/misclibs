@@ -69,39 +69,45 @@ int main(int argc, char **argv)
   opt.print_args();
 
   load_halos halos;
+  halos.scheme = opt.p_assign;
   halos.read_header(base_file);
   halos.print_header();
-  halos.scheme = opt.p_assign;
 
-  double lbox = halos.box_size;
-
-  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
-  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
-  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
+  double lbox(halos.box_size);
+  float ascale(halos.a);
 
   groupcatalog groups;
   groups.lbox = lbox;
   groups.Om = halos.Om;
   groups.Ol = halos.Ol;
 
+  /* set selection halo index */
+  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
+  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
   groups.select_range(mvir, mvir_min, mvir_max);
   groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
+  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
   auto grp = groups.set_base_grp(pos);
+
+  if(opt.do_RSD) {
+    auto vel = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "vel");
+    groups.apply_RSD_shift(vel, ascale, opt.los_axis, grp);
+  }
+
+  if(opt.do_Gred) {
+    auto pot = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pot_total");
+    groups.apply_Gred_shift(pot, ascale, opt.los_axis, grp);
+  }
 
   int64_t nfft_tot = (int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2);
   std::vector<float> dens_mesh(nfft_tot, 0.0f);
+  group_assign_mesh(grp, dens_mesh, nmesh, halos.scheme);
 
-  group_assign_mesh(grp, dens_mesh, nmesh, 1.0, halos.scheme);
+  normalize_mesh(dens_mesh, nmesh);
+  // output_field(dens_mesh, nmesh, lbox, "halo_dens_mesh");
 
-  double dens_mean = 0.0;
-#pragma omp parallel for reduction(+ : dens_mean)
-  for(int64_t i = 0; i < nfft_tot; i++) dens_mean += dens_mesh[i];
-
-  dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
-
-#pragma omp parallel for
-  for(int64_t i = 0; i < nfft_tot; i++) dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
+  auto nhalo_select = grp.size();
 
   correlation cor;
   cor.p = halos.scheme;
@@ -112,7 +118,7 @@ int main(int argc, char **argv)
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 
-  cor.shotnoise_corr = !opt.no_shotnoise;
+  cor.shotnoise_corr = !opt.no_shotnoise_corr;
   cor.set_shotnoise(nhalo_select);
 
   std::vector<float> weight;

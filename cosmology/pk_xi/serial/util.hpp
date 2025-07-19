@@ -115,7 +115,7 @@ void make_directory(const char *directory_name)
 }
 
 template <typename T>
-void show_progress(int &istep, const int total_step, const T &label)
+void show_progress(const int istep, const int total_step, const T &label)
 {
   const int step_div = std::max(1, total_step / 100);
   const double ratio = 100.0 * (double)istep / (double)total_step;
@@ -123,6 +123,5 @@ void show_progress(int &istep, const int total_step, const T &label)
     std::cerr << "\r\033[2K";
     std::cerr << label << " :: " << istep << " / " << total_step << " :: " << ratio << " [%]";
   }
-  istep++;
-  if(istep - 1 >= total_step) std::cerr << std::endl;
+  if(istep == total_step - 1) std::cerr << std::endl;
 }

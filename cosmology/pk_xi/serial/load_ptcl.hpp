@@ -116,7 +116,9 @@ public:
     uint64_t neff = npart_tot * sampling_rate;
     std::cerr << "Sampling rate : " << sampling_rate << std::endl;
     std::cerr << "N effective : " << neff << std::endl;
+
     pdata.reserve(neff);
+    pdata.clear();
 
     std::cerr << "Reading gadget snapshot files ...";
 
@@ -162,6 +164,8 @@ public:
       fin.close();
 
       double boxsize = h.BoxSize;
+      const double a = 1.0 / (1.0 + htmp.redshift);
+      const double sqrta = std::sqrt(a);
 
       for(uint64_t i = 0; i < np; i++) {
 
@@ -178,7 +182,8 @@ public:
         if constexpr(has_vp) {
           if(do_RSD) {
             for(int j = 0; j < 3; j++) {
-              pdata1.vel[j] = vel[3 * i + j];
+              // Gadget to km/s
+              pdata1.vel[j] = vel[3 * i + j] * sqrta;
             }
           }
 
@@ -189,7 +194,7 @@ public:
             pdata1.pot = pot_tree + pot_pm;
           }
         }
-        pdata.push_back(pdata1);
+        pdata.emplace_back(std::move(pdata1));
       }
     }
 
@@ -212,7 +217,9 @@ public:
     uint64_t neff = npart_tot * sampling_rate;
     std::cerr << "Sampling rate : " << sampling_rate << std::endl;
     std::cerr << "N effective : " << neff << std::endl;
+
     pdata.reserve(neff);
+    pdata.clear();
 
     std::cerr << "Reading gadget snapshot files ..." << std::endl;
 
@@ -257,6 +264,7 @@ public:
 
       auto boxsize = h.BoxSize;
       auto a = 1.0 / (1.0 + htmp.redshift);
+      auto sqrta = std::sqrt(a);
       auto Om = htmp.Omega0;
       auto Ol = htmp.OmegaLambda;
       auto _Ha = Ha(a, Om, Ol);
@@ -271,13 +279,13 @@ public:
         T pdata1;
         for(int j = 0; j < 3; ++j) {
           auto pos_j = pos[3 * i + j];
-          if(do_RSD && j == los) pos_j += vel[3 * i + j] * factor_RSD; // ここでのvelはGadget形式なのであとで係数修正
+          if(do_RSD && j == los) pos_j += vel[3 * i + j] * sqrta * factor_RSD;
           if(do_Gred && j == los) pos_j -= (pot[2 * i] + pot[2 * i + 1]) * factor_Gred;
           if(pos_j < 0.0) pos_j += boxsize;
           if(pos_j >= boxsize) pos_j -= boxsize;
           pdata1.pos[j] = pos_j;
         }
-        pdata.push_back(pdata1);
+        pdata.emplace_back(std::move(pdata1));
       }
     }
 
@@ -291,6 +299,8 @@ public:
   void load_gdt_and_assing(std::string FileBase, U &mesh)
   {
     check_scheme();
+
+    std::cerr << "Reading gadget snapshot files (no sampling)..." << std::endl;
 
     int dummy;
     gadget::header htmp = h; // initialization by rank 0 header
@@ -312,8 +322,8 @@ public:
       SKIP;
 
       uint64_t np = htmp.npart[1];
-
-      pdata.resize(np);
+      pdata.reserve(np);
+      pdata.clear();
 
       std::vector<float> pos(3 * np);
 
@@ -325,7 +335,7 @@ public:
 
       double boxsize = h.BoxSize;
 
-      for(int i = 0; i < np; i++) {
+      for(int64_t i = 0; i < np; i++) {
         T pdata1;
         for(int j = 0; j < 3; j++) {
           pdata1.pos[j] = pos[3 * i + j];
@@ -367,7 +377,11 @@ public:
       SKIP;
 
       uint64_t np = htmp.npart[1];
+      pdata.reserve(np);
+      pdata.clear();
+
       std::vector<float> pos(3 * np);
+
       SKIP;
       fin.read((char *)pos.data(), 3 * np * sizeof(float));
       SKIP;
@@ -395,6 +409,7 @@ public:
 
       const double boxsize = h.BoxSize;
       const double a = 1.0 / (1.0 + htmp.redshift);
+      const double sqrta = std::sqrt(a);
       const double Om = htmp.Omega0;
       const double Ol = htmp.OmegaLambda;
       const double _Ha = Ha(a, Om, Ol);
@@ -403,14 +418,11 @@ public:
 
       const int los = (los_axis == "x") ? 0 : (los_axis == "y") ? 1 : 2;
 
-      std::vector<T> pdata;
-      pdata.reserve(np);
-
       for(uint64_t i = 0; i < np; ++i) {
         T pdata1;
         for(int j = 0; j < 3; ++j) {
           float pos_j = pos[3 * i + j];
-          if(do_RSD && j == los) pos_j += vel[3 * i + j] * factor_RSD;
+          if(do_RSD && j == los) pos_j += (vel[3 * i + j] * sqrta) * factor_RSD;
           if(do_Gred && j == los) pos_j -= (pot[2 * i] + pot[2 * i + 1]) * factor_Gred;
           if(pos_j < 0.0f) pos_j += boxsize;
           if(pos_j >= boxsize) pos_j -= boxsize;

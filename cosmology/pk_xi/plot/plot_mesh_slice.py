@@ -24,7 +24,7 @@ nslice = nmesh // 2
 extent = [0, lbox, 0, lbox]
 
 if plot_type == "dens":
-    slice_mesh = np.log10(mesh[:, :, nslice] + 1e-10)
+    slice_mesh = np.log10(mesh[:, :, nslice] + 1.0)
     clab = r"$\log_{10} \rho/\bar{\rho}$"
     vmin, vmax = -2, 3
 elif plot_type == "pot":

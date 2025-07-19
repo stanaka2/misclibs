@@ -13,6 +13,7 @@
 int main(int argc, char **argv)
 {
   BaseOptions opt(argc, argv);
+
   std::string base_file = opt.input_prefix + ".0" + opt.h5_suffix;
 
   float mvir_min, mvir_max;
@@ -23,61 +24,60 @@ int main(int argc, char **argv)
   float kmin = opt.krange[0];
   float kmax = opt.krange[1];
   bool log_bin = opt.log_bin;
+
   auto nmesh = opt.nmesh;
 
-  std::cout << "# input prefix " << opt.input_prefix << std::endl;
-  std::cout << "# base file " << base_file << std::endl;
-  std::cout << "# output filename " << opt.output_filename << std::endl;
-  std::cout << "# Mmin, Mmax " << mvir_min << ", " << mvir_max << std::endl;
-  std::cout << "# kmin, kmax, Nk " << kmin << ", " << kmax << ", " << nk << std::endl;
-  std::cout << "# log_bin " << std::boolalpha << opt.log_bin << std::endl;
-  std::cout << "# FFT mesh " << nmesh << "^3" << std::endl;
-  std::cout << std::endl;
+  opt.print_args();
 
   load_halos halos;
+  halos.scheme = opt.p_assign;
   halos.read_header(base_file);
   halos.print_header();
-  halos.scheme = opt.p_assign;
 
-  double lbox = halos.box_size;
-
-  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
-  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
-  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
+  double lbox(halos.box_size);
+  float ascale(halos.a);
 
   groupcatalog groups;
   groups.lbox = lbox;
   groups.Om = halos.Om;
   groups.Ol = halos.Ol;
 
+  /* set selection halo index */
+  auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
+  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
   groups.select_range(mvir, mvir_min, mvir_max);
   groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
+  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
   auto grp = groups.set_base_grp(pos);
+
+  if(opt.do_RSD) {
+    auto vel = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "vel");
+    groups.apply_RSD_shift(vel, ascale, opt.los_axis, grp);
+  }
+
+  if(opt.do_Gred) {
+    auto pot = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pot_total");
+    groups.apply_Gred_shift(pot, ascale, opt.los_axis, grp);
+  }
 
   int64_t nfft_tot = (int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2);
   std::vector<float> dens_mesh(nfft_tot, 0.0f);
+  group_assign_mesh(grp, dens_mesh, nmesh, halos.scheme);
 
-  group_assign_mesh(grp, dens_mesh, nmesh, 1.0, halos.scheme);
+  normalize_mesh(dens_mesh, nmesh);
+  // output_field(dens_mesh, nmesh, lbox, "halo_dens_mesh");
 
-  double dens_mean = 0.0;
-#pragma omp parallel for reduction(+ : dens_mean)
-  for(int64_t i = 0; i < nfft_tot; i++) dens_mean += dens_mesh[i];
-
-  dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
-
-#pragma omp parallel for
-  for(int64_t i = 0; i < nfft_tot; i++) dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
+  auto nhalo_select = grp.size();
 
   powerspec power;
   power.p = halos.scheme;
   power.lbox = lbox;
   power.nmesh = nmesh;
+  power.shotnoise_corr = !opt.no_shotnoise_corr;
 
   power.set_kbin(kmin, kmax, nk, opt.log_bin);
   //   power.check_kbin();
-
-  power.shotnoise_corr = !opt.no_shotnoise;
   power.set_shotnoise(nhalo_select);
 
 #if 1

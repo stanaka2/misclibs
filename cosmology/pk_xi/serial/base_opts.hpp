@@ -20,7 +20,7 @@ public:
 
   int nmesh = 1024;
   int p_assign = 3;
-  bool no_shotnoise = false;
+  bool no_shotnoise_corr = false;
 
   bool do_RSD = false;
   bool do_Gred = false;
@@ -97,8 +97,8 @@ protected:
     app.add_option("--clevel", clevel, "halo child level. 0:host- 1:sub- n:n-th child- halo")->expected(2)->capture_default_str();
 
     app.add_option("-n,--nmesh", nmesh, "number of FFT mesh size")->capture_default_str();
-    app.add_option("--p_assign", p_assign, "particle assign type")->check(CLI::IsMember({1, 2, 3}))->capture_default_str();
-    app.add_flag("--no_shotnoise", no_shotnoise, "disable shot noise correction")->capture_default_str();
+    app.add_option("-p,--p_assign", p_assign, "particle assign type")->check(CLI::IsMember({1, 2, 3}))->capture_default_str();
+    app.add_flag("--no_shotnoise_corr", no_shotnoise_corr, "disable shot noise correction")->capture_default_str();
 
     app.add_flag("--RSD", do_RSD, "Apply redshift-space distortion (RSD) shift to positions")->capture_default_str();
     app.add_flag("--Gred", do_Gred, "Apply gravitational redshift shift to positions")->capture_default_str();

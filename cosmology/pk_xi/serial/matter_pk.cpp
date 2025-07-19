@@ -20,45 +20,43 @@ int main(int argc, char **argv)
 
   opt.print_args();
 
-  load_ptcl<particle_pot_str> snap;
+  load_ptcl<particle_str> snap;
   snap.nmesh = nmesh;
   snap.scheme = opt.p_assign;
+  snap.do_RSD = opt.do_RSD;
+  snap.do_Gred = opt.do_Gred;
   snap.read_header(opt.input_prefix);
 
+  int64_t np_tot(snap.npart_tot);
   double lbox(snap.h.BoxSize);
-  double ptcl_mass(snap.ptcl_mass);
   int64_t nmesh_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)nmesh);
   int64_t nfft_tot((int64_t)nmesh * (int64_t)nmesh * (int64_t)(nmesh + 2));
 
   /* for density fluctuations */
-  int type = 0;
   std::vector<float> dens_mesh(nfft_tot);
   std::fill(dens_mesh.begin(), dens_mesh.end(), 0.0);
-  snap.load_gdt_and_assing(opt.input_prefix, dens_mesh, type);
 
-  double dens_mean = 0.0;
-  for(int64_t i = 0; i < nfft_tot; i++) {
-    dens_mean += dens_mesh[i];
-  }
-  dens_mean /= (double(nmesh) * double(nmesh) * double(nmesh));
-
-#pragma omp parallel for
-  for(int64_t i = 0; i < nfft_tot; i++) {
-    dens_mesh[i] = dens_mesh[i] / dens_mean - 1.0;
+  /* for density fluctuations */
+  if(opt.do_RSD || opt.do_Gred) {
+    snap.load_gdt_and_shift_assing(opt.input_prefix, dens_mesh);
+  } else {
+    snap.load_gdt_and_assing(opt.input_prefix, dens_mesh);
   }
 
+  snap.free_pdata();
+
+  normalize_mesh(dens_mesh, nmesh);
   // output_field(dens_mesh, nmesh, lbox, "dens_mesh");
 
   powerspec power;
   power.p = snap.scheme;
   power.lbox = lbox;
   power.nmesh = nmesh;
+  power.shotnoise_corr = !opt.no_shotnoise_corr;
 
-  power.set_kbin(kmin, kmax, nk, log_bin);
   //   power.check_kbin();
-
-  power.shotnoise_corr = !opt.no_shotnoise;
-  power.set_shotnoise(snap.npart_tot);
+  power.set_kbin(kmin, kmax, nk, log_bin);
+  power.set_shotnoise(np_tot);
 
 #if 1
   std::vector<float> power_dens;

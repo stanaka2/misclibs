@@ -89,6 +89,8 @@ int main(int argc, char **argv)
   // Make sure that sampling is not applied twice.
   auto grp = groups.set_base_grp(snap.pdata);
 
+  snap.free_pdata();
+
   correlation cor;
   cor.jk_block = jk_block;
   cor.jk_level = jk_level;

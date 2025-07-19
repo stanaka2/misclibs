@@ -237,6 +237,49 @@ void group_assign_mesh(G &grp, T &mesh, const int nmesh, const int scheme)
   }
 }
 
+int guess_nmesh_from_size(int64_t size)
+{
+  int64_t nmesh = std::round(std::cbrt(size));
+  if((nmesh * nmesh * nmesh) == size) return nmesh;
+
+  for(int delta = -2; delta <= 2; delta++) {
+    int64_t n = nmesh + delta;
+    if((n * n * (n + 2)) == size) {
+      return n;
+    }
+  }
+  return -1;
+}
+
+template <typename T>
+void normalize_mesh(T &mesh, const int nmesh)
+{
+  int64_t nz = nmesh + 2;
+  double mean = 0.0;
+
+#pragma omp parallel for collapse(3) reduction(+ : mean)
+  for(int64_t ix = 0; ix < nmesh; ix++) {
+    for(int64_t iy = 0; iy < nmesh; iy++) {
+      for(int64_t iz = 0; iz < nmesh; iz++) {
+        int64_t idx = iz + nz * (iy + nmesh * ix);
+        mean += mesh[idx];
+      }
+    }
+  }
+
+  mean /= (double(nmesh) * double(nmesh) * double(nmesh));
+
+#pragma omp parallel for collapse(3)
+  for(int64_t ix = 0; ix < nmesh; ix++) {
+    for(int64_t iy = 0; iy < nmesh; iy++) {
+      for(int64_t iz = 0; iz < nmesh; iz++) {
+        int64_t idx = iz + nz * (iy + nmesh * ix);
+        mesh[idx] = mesh[idx] / mean - 1.0;
+      }
+    }
+  }
+}
+
 template <typename T>
 void output_field(T &mesh, const int nmesh, const double lbox, std::string filename)
 {
@@ -256,6 +299,8 @@ void output_field(T &mesh, const int nmesh, const double lbox, std::string filen
     }
   }
   fout.close();
+
+  std::cerr << "Output field to file: " << filename << std::endl;
 }
 
 template <typename T>
@@ -271,4 +316,6 @@ void output_fft_field(T &mesh, const int nmesh, const double lbox, std::string f
   fout.write((char *)&lbox, sizeof(double));
   fout.write((char *)mesh.data(), Tsize * nmesh_tot);
   fout.close();
+
+  std::cerr << "Output FFT field to file: " << filename << std::endl;
 }
