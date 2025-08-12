@@ -85,9 +85,9 @@ private:
   template <typename T>
   int get_r2_index(T);
   template <typename T>
-  int get_ir_form_dr(T, T, T);
+  int get_ir_from_dr(T, T, T);
   template <typename T>
-  int get_imu_form_dr(T, T, T);
+  int get_imu_from_dr(T, T, T);
   template <typename T>
   int get_cell_index(T, int);
 
@@ -283,7 +283,7 @@ int correlation::get_r2_index(T r2)
 }
 
 template <typename T>
-int correlation::get_ir_form_dr(T dx, T dy, T dz)
+int correlation::get_ir_from_dr(T dx, T dy, T dz)
 {
   /*
   dx = (dx > 0.5 ? dx - 1.e0 : dx);
@@ -303,7 +303,7 @@ int correlation::get_ir_form_dr(T dx, T dy, T dz)
 }
 
 template <typename T>
-int correlation::get_imu_form_dr(T dx, T dy, T dz)
+int correlation::get_imu_from_dr(T dx, T dy, T dz)
 {
   dx -= std::nearbyint(dx);
   dy -= std::nearbyint(dy);
@@ -767,7 +767,7 @@ std::vector<double> correlation::calc_pair(const double w, G &grp, C &cell_list,
                   double dx = grp[jj].xpos - grp[ii].xpos;
                   double dy = grp[jj].ypos - grp[ii].ypos;
                   double dz = grp[jj].zpos - grp[ii].zpos;
-                  const int ir = get_ir_form_dr(dx, dy, dz);
+                  const int ir = get_ir_from_dr(dx, dy, dz);
 
                   if(ir >= 0 && ir < nr) {
                     thr_pair[ir] += w;
@@ -776,7 +776,7 @@ std::vector<double> correlation::calc_pair(const double w, G &grp, C &cell_list,
               }
             }
           }
-        } // dx, dy, dz
+        } // jx, jy, jz
 
         if(ithread == 0) {
           progress++;
@@ -833,7 +833,7 @@ std::vector<double> correlation::calc_pair(const double w, G &grp1, G &grp2, C &
                   double dx = grp2[jj].xpos - grp1[ii].xpos;
                   double dy = grp2[jj].ypos - grp1[ii].ypos;
                   double dz = grp2[jj].zpos - grp1[ii].zpos;
-                  const int ir = get_ir_form_dr(dx, dy, dz);
+                  const int ir = get_ir_from_dr(dx, dy, dz);
 
                   if(ir >= 0 && ir < nr) {
                     thr_pair[ir] += w;
@@ -842,7 +842,7 @@ std::vector<double> correlation::calc_pair(const double w, G &grp1, G &grp2, C &
               }
             }
           }
-        } // dx, dy, dz
+        } // jx, jy, jz
 
         if(ithread == 0) {
           progress++;
@@ -905,8 +905,8 @@ std::vector<double> correlation::calc_pair_smu(const double w, G &grp, C &cell_l
                   double dy = grp[jj].ypos - grp[ii].ypos;
                   double dz = grp[jj].zpos - grp[ii].zpos;
 
-                  const int ir = get_ir_form_dr(dx, dy, dz);
-                  const int imu = get_imu_form_dr(dx, dy, dz);
+                  const int ir = get_ir_from_dr(dx, dy, dz);
+                  const int imu = get_imu_from_dr(dx, dy, dz);
 
                   if(ir >= 0 && ir < nr) {
                     if(imu >= 0 && imu < nmu) {
@@ -918,7 +918,7 @@ std::vector<double> correlation::calc_pair_smu(const double w, G &grp, C &cell_l
               }
             }
           }
-        } // dx, dy, dz
+        } // jx, jy, jz
 
         if(ithread == 0) {
           progress++;
@@ -977,8 +977,8 @@ std::vector<double> correlation::calc_pair_smu(const double w, G &grp1, G &grp2,
                   double dy = grp2[jj].ypos - grp1[ii].ypos;
                   double dz = grp2[jj].zpos - grp1[ii].zpos;
 
-                  const int ir = get_ir_form_dr(dx, dy, dz);
-                  const int imu = get_imu_form_dr(dx, dy, dz);
+                  const int ir = get_ir_from_dr(dx, dy, dz);
+                  const int imu = get_imu_from_dr(dx, dy, dz);
 
                   if(ir >= 0 && ir < nr) {
                     if(imu >= 0 && imu < nmu) {
@@ -990,7 +990,7 @@ std::vector<double> correlation::calc_pair_smu(const double w, G &grp1, G &grp2,
               }
             }
           }
-        } // dx, dy, dz
+        } // jx, jy, jz
 
         if(ithread == 0) {
           progress++;
@@ -1073,7 +1073,7 @@ std::vector<double> correlation::calc_pair_spsp(const double w, G &grp, C &cell_
               }
             }
           }
-        } // dx, dy, dz
+        } // jx, jy, jz
 
         if(ithread == 0) {
           progress++;
@@ -1149,7 +1149,7 @@ std::vector<double> correlation::calc_pair_spsp(const double w, G &grp1, G &grp2
       }
             }
           }
-        } // dx, dy, dz
+        } // jx, jy, jz
 
         if(ithread == 0) {
           progress++;
