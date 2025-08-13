@@ -39,8 +39,17 @@ int main(int argc, char **argv)
   swift_particles ptcls(input_file, matter_type);
   ptcls.load_ptcls(tr);
 
+  bool deltaf = true;
   double lbox = 1.0;
-  moments<float> moments(nmesh, lbox, scheme);
+  moments<float> moments(nmesh, lbox, scheme, deltaf);
+
+  moments.Mnu_bg_box = tr.Mnu_bg_box;
+
+  if(!moments.use_deltaf) {
+    for(int64_t i = 0; i < ptcls.ptcls.size(); i++) {
+      ptcls.ptcls[i].mass = 1.0; // set mass to 1.0 for not deltaf
+    }
+  }
 
   if(type == "dens") {
     auto dens = moments.calc_dens_field(ptcls.ptcls);

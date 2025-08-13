@@ -127,7 +127,7 @@ public:
       tr.cosm.omega_v = tmp;
       H5Aclose(attr_id);
 
-      attr_id = H5Aopen(group_id, "Omega_nu", H5P_DEFAULT);
+      attr_id = H5Aopen(group_id, "Omega_nu_0", H5P_DEFAULT);
       H5Aread(attr_id, H5T_NATIVE_DOUBLE, &tmp);
       std::cout << "Omega_nu = " << tmp << "\n";
       tr.cosm.omega_nu = tmp;
@@ -148,14 +148,6 @@ public:
       tr.znow = tmp;
       tr.anow = 1.0 / (1.0 + tr.znow);
       H5Aclose(attr_id);
-
-      struct neutrino {
-        int mass_nu_num;
-        int deg[3];
-
-        float sum_mass;
-        float mass[3], frac[3];
-      };
 
       H5Gclose(group_id);
     }
@@ -204,6 +196,14 @@ public:
         tr.cosm.nu.mass_nu_num = (int)std::lround(v);
       }
 
+      double rho_c0 = 0.0;
+      {
+        hid_t attr_id = H5Aopen(group_id, "Critical density at redshift zero [internal units]", H5P_DEFAULT);
+        H5Aread(attr_id, H5T_NATIVE_DOUBLE, &rho_c0);
+        H5Aclose(attr_id);
+      }
+      H5Gclose(group_id);
+
       for(int i = 0; i < 3; ++i) tr.cosm.nu.frac[i] = 1.0;
 
       std::cout << "nu_mass_sum(eV)=" << tr.cosm.nu.sum_mass << std::endl;
@@ -213,7 +213,8 @@ public:
       std::cout << "nu_deg=[" << tr.cosm.nu.deg[0] << "," << tr.cosm.nu.deg[1] << "," << tr.cosm.nu.deg[2] << "]"
                 << std::endl;
 
-      H5Gclose(group_id);
+      const auto volume = boxsize * boxsize * boxsize;
+      tr.Mnu_bg_box = tr.cosm.omega_nu * rho_c0 * volume;
     }
 
     double om = tr.cosm.omega_m;
@@ -285,6 +286,11 @@ public:
     H5Dclose(ds_m);
 
     std::cout << "read particle mass" << std::endl;
+
+    if(comp_type == "nu") {
+      std::cout << "Here the neutrino mass used for deposition is `mass x weight`, hence negative values are possible."
+                << std::endl;
+    }
 
     ptcls.clear();
     ptcls.resize(N);

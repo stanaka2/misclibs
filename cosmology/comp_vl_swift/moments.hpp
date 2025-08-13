@@ -19,8 +19,11 @@ public:
 
   int64_t nmesh_x, nmesh_y, nmesh_z;
 
-  moments(int64_t nmesh, double lbox, const std::string &_scheme_type = "TSC")
-      : nmesh_x(nmesh), nmesh_y(nmesh), nmesh_z(nmesh), lbox(lbox)
+  bool use_deltaf = false;
+  double Mnu_bg_box = 0.0;
+
+  moments(int64_t nmesh, double lbox, const std::string &_scheme_type = "TSC", const bool _deltaf = false)
+      : nmesh_x(nmesh), nmesh_y(nmesh), nmesh_z(nmesh), lbox(lbox), use_deltaf(_deltaf)
   {
     if(_scheme_type == "NGP") scheme = 1;
     else if(_scheme_type == "CIC") scheme = 2;
@@ -135,7 +138,7 @@ public:
       double x = ptcl[p].xpos / lbox;
       double y = ptcl[p].ypos / lbox;
       double z = ptcl[p].zpos / lbox;
-      double m = 1.0;
+      double m = ptcl[p].mass;
 
       int ix[4], iy[4], iz[4];
       double wx[4], wy[4], wz[4];
@@ -182,7 +185,7 @@ public:
       const double vy = ptcl[p].yvel;
       const double vz = ptcl[p].zvel;
 
-      const double m = 1.0;
+      const double m = ptcl[p].mass;
 
       int ix[4], iy[4], iz[4];
       double wx[4], wy[4], wz[4];
@@ -230,7 +233,7 @@ public:
       const double vy = ptcl[p].yvel;
       const double vz = ptcl[p].zvel;
 
-      const double m = 1.0;
+      const double m = ptcl[p].mass;
 
       int ix[4], iy[4], iz[4];
       double wx[4], wy[4], wz[4];
@@ -278,6 +281,18 @@ public:
   {
     std::cout << "Calculating density field ..." << std::flush;
     auto dens = calc_dens(ptcl);
+
+    if(use_deltaf) {
+      // Mnu_bg_box = rho_nu_bar * Vcell
+      assert(Mnu_bg_box > 1.0);
+      auto factor = Mnu_bg_box / ((double)nmesh_x * nmesh_y * nmesh_z);
+      factor = 1.0 / factor;
+
+      const int64_t ntot = static_cast<int64_t>(dens.size());
+      for(int64_t i = 0; i < ntot; i++) {
+        dens[i] = 1.0 + dens[i] * factor;
+      }
+    }
 
     std::cout << " done." << std::endl;
     return dens;

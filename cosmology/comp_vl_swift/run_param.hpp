@@ -51,6 +51,8 @@ struct run_param {
   double lbox;
   double vunit;
   int nfiles;
+
+  double Mnu_bg_box = 0.0; // background cell mass for deltaf
 };
 
 #define SQR(x) ((x) * (x))
