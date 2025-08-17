@@ -26,7 +26,13 @@ halo_pk: halo_pk.o
 halo_xi: halo_xi.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 
+halo_xi_cross: halo_xi_cross.o
+	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
+
 halo_xi2D: halo_xi2D.o
+	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
+
+halo_xi2D_cross: halo_xi2D_cross.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 
 halo_xi_ifft: halo_xi_ifft.o

@@ -44,17 +44,14 @@ public:
     if(x >= nmesh) x -= nmesh;
     if(x < 0.0) x += nmesh;
 
-    int n;
-
     if(scheme == 1) {
       // NGP
       int i = (int)std::floor(x + 0.5);
       i = (i % nmesh + nmesh) % nmesh;
+      idx[0] = i;
+      w[0] = 1.0;
 
-      n = 0;
-      idx[n] = i;
-      w[n] = 1.0;
-      n++;
+      return 1;
 
     } else if(scheme == 2) {
       // CIC
@@ -64,13 +61,13 @@ public:
       i0 = (i0 % nmesh + nmesh) % nmesh;
       i1 = (i1 % nmesh + nmesh) % nmesh;
 
-      n = 0;
-      idx[n] = i0;
-      w[n] = 1.0 - f;
+      idx[0] = i0;
+      w[0] = 1.0 - f;
       n++;
-      idx[n] = i1;
-      w[n] = f;
-      n++;
+      idx[1] = i1;
+      w[1] = f;
+
+      return 2;
 
     } else if(scheme == 3) {
       // TSC
@@ -85,43 +82,44 @@ public:
       ic = (ic % nmesh + nmesh) % nmesh;
       ir = (ir % nmesh + nmesh) % nmesh;
 
-      n = 0;
-      idx[n] = il;
-      w[n] = wl;
-      n++;
-      idx[n] = ic;
-      w[n] = wc;
-      n++;
-      idx[n] = ir;
-      w[n] = wr;
-      n++;
+      idx[0] = il;
+      w[0] = wl;
+      idx[1] = ic;
+      w[1] = wc;
+      idx[2] = ir;
+      w[2] = wr;
+
+      return 3;
 
     } else if(scheme == 4) {
       // PCS
-      int i0 = (int)std::floor(x) - 1;
-      n = 0;
-      for(int k = 0; k < 4; ++k) {
-        int j = i0 + k;
-        double r = std::fabs(x - (double)j);
-        double r2 = r * r;
-        double r3 = r2 * r;
-        double wk = 0.0;
-        if(r < 1.0) {
-          wk = (4.0 - 6.0 * r2 + 3.0 * r3) / 6.0;
-        } else if(r < 2.0) {
-          double t = (2.0 - r);
-          wk = (t * t * t) / 6.0;
-        } else {
-          wk = 0.0;
+      int i0 = (int)std::floor(x);
+      double u = x - static_cast<double>(i0);
+      double u2 = u * u;
+      double u3 = u2 * u;
+
+      // cubic B-spline weights (sum == 1)
+      const auto h = 1.0 / 6.0;
+      w[0] = (1.0 - 3.0 * u + 3.0 * u2 - u3) * h;
+      w[1] = (4.0 - 6.0 * u2 + 3.0 * u3) * h;
+      w[2] = (1.0 + 3.0 * u + 3.0 * u2 - 3.0 * u3) * h;
+      w[3] = u3 * h;
+
+      int im1 = (i0 - 1);
+      int ip1 = (i0 + 1);
+      int ip2 = (i0 + 2);
+      im1 = (im1 % nmesh + nmesh) % nmesh;
+      i0 = (i0 % nmesh + nmesh) % nmesh;
+      ip1 = (ip1 % nmesh + nmesh) % nmesh;
+      ip2 = (ip2 % nmesh + nmesh) % nmesh;
+
+      idx[0] = im1;
+      idx[1] = i0;
+      idx[2] = i1;
+      idx[3] = i2;
+
+      return 4;
         }
-        if(wk > 0.0) {
-          idx[n] = (j % nmesh + nmesh) % nmesh;
-          w[n] = wk;
-          ++n;
-        }
-      }
-    }
-    return n;
   }
 
   // return rho

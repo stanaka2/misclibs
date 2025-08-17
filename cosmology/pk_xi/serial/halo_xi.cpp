@@ -108,10 +108,12 @@ int main(int argc, char **argv)
 
   correlation cor;
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
-  cor.jk_block = jk_block;
+  cor.njk = jk_block;
   cor.jk_level = jk_level;
   cor.jk_type = opt.jk_type;
-  cor.estimator = opt.estimator;
+
+  cor.set_cor_estimator(opt.estimator);
+  cor.set_cor_mode("r");
   cor.nrand_factor = opt.nrand_factor;
 
   cor.calc_xi(grp);

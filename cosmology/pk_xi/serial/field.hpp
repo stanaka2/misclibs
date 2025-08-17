@@ -9,7 +9,7 @@
 
 #include "util.hpp"
 
-static inline int assign_axis(const double pos, const int nmesh, const int scheme, int idx[3], double w[3])
+static inline int assign_axis(const double pos, const int nmesh, const int scheme, int idx[4], double w[4])
 {
   int nassign = 0;
   double x = pos * nmesh;
@@ -52,6 +52,32 @@ static inline int assign_axis(const double pos, const int nmesh, const int schem
     w[1] = w_center;
     w[2] = w_right;
     nassign = 3;
+  } else if(scheme == 4) {
+    // PCS (cubic B-spline, 4-point)
+    int i = static_cast<int>(std::floor(x));
+    double u = x - i; // fractional part in [0,1)
+    int i_m1 = i - 1;
+    int i_p1 = i + 1;
+    int i_p2 = i + 2;
+    i = (i + nmesh) % nmesh;
+    i_m1 = (i_m1 + nmesh) % nmesh;
+    i_p1 = (i_p1 + nmesh) % nmesh;
+    i_p2 = (i_p2 + nmesh) % nmesh;
+
+    double w_m1 = (1.0 / 6.0) * (1.0 - u) * (1.0 - u) * (1.0 - u);
+    double w_0 = (1.0 / 6.0) * (3.0 * u * u * u - 6.0 * u * u + 4.0);
+    double w_1 = (1.0 / 6.0) * (-3.0 * u * u * u + 3.0 * u * u + 3.0 * u + 1.0);
+    double w_2 = (1.0 / 6.0) * (u * u * u);
+
+    idx[0] = i_m1;
+    w[0] = w_m1;
+    idx[1] = i;
+    w[1] = w_0;
+    idx[2] = i_p1;
+    w[2] = w_1;
+    idx[3] = i_p2;
+    w[3] = w_2;
+    nassign = 4;
   }
 
   return nassign;

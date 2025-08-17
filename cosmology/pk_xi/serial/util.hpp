@@ -125,3 +125,23 @@ void show_progress(const int istep, const int total_step, const T &label)
   }
   if(istep == total_step - 1) std::cerr << std::endl;
 }
+
+std::string add_label_string(const std::string &path, const std::string &label)
+{
+  // file.dat to file_label.dat
+
+  std::string lbl = (label[0] == '_') ? label : "_" + label;
+
+  const size_t sep = path.find_last_of("/\\");
+  const std::string dir = (sep == std::string::npos) ? "" : path.substr(0, sep + 1);
+  const std::string file = (sep == std::string::npos) ? path : path.substr(sep + 1);
+
+  if(file.empty()) return path;
+
+  const size_t dot = file.find_last_of('.');
+  if(dot == std::string::npos || dot == 0) {
+    return dir + file + lbl;
+  }
+
+  return dir + file.substr(0, dot) + lbl + file.substr(dot);
+}

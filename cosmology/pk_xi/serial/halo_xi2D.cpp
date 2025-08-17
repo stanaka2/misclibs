@@ -15,13 +15,11 @@ class ProgOptions : public BaseOptions
 {
 public:
   /* default arguments */
-  std::string mode = "spsp";
+  std::string mode = "smu";
   bool half_angle = false;
   int jk_level = 1;
   int jk_type = 0;
   /* end arguments */
-
-  bool mode_spsp = true; // default = spsp
 
   ProgOptions() = default;
   ProgOptions(int argc, char **argv)
@@ -32,7 +30,6 @@ public:
 
     try {
       app.parse(argc, argv);
-      mode_spsp = (mode == "spsp");
     } catch(const CLI::ParseError &e) {
       std::exit(app.exit(e));
     }
@@ -42,10 +39,7 @@ protected:
   template <typename T>
   void add_to_app(T &app)
   {
-    app.add_option("--mode", mode, "pair-counting mode")
-        ->check(CLI::IsMember({"spsp", "smu"}))
-        ->default_val("spsp")
-        ->capture_default_str();
+    app.add_option("--mode", mode, "pair-counting mode")->check(CLI::IsMember({"spsp", "smu"}))->capture_default_str();
     app.add_flag("--half_angle", half_angle,
                  "If set, calculate only the upper half-range (0<mu<1 or 0<s_para<Rmax); "
                  "if not set, calculate the full range (-1<mu<1 or -Rmax<s_para<Rmax)")
@@ -76,7 +70,7 @@ int main(int argc, char **argv)
   int nr1, r1min, r1max;
   int nr2, r2min, r2max;
 
-  if(opt.mode_spsp) {
+  if(opt.mode == "spsp") {
     // spsp mode
     if(!opt.half_angle) {
       // s_perp
@@ -171,24 +165,17 @@ int main(int argc, char **argv)
   }
 
   correlation cor;
-  cor.jk_block = jk_block;
+  cor.njk = jk_block;
   cor.jk_level = jk_level;
   cor.jk_type = opt.jk_type;
-  cor.estimator = opt.estimator;
   cor.nrand_factor = opt.nrand_factor;
 
-  if(opt.mode_spsp) {
-    cor.set_spspbin(r1min, r1max, nr1, r2min, r2max, nr2, lbox);
-  } else {
-    cor.set_smubin(r1min, r1max, nr1, r2min, r2max, nr2, lbox);
-  }
+  cor.set_cor_estimator(opt.estimator);
+  cor.set_cor_mode(opt.mode);
 
-  if(opt.mode_spsp) {
-    cor.calc_xi_spsp(grp);
-    cor.output_xi_spsp(opt.output_filename);
-  } else {
-    cor.calc_xi_smu(grp);
-    cor.output_xi_smu(opt.output_filename);
-  }
+  cor.set_rbin2D(r1min, r1max, nr1, r2min, r2max, nr2, lbox);
+  cor.calc_xi(grp);
+  cor.output_xi2D(opt.output_filename);
+
   return EXIT_SUCCESS;
 }
