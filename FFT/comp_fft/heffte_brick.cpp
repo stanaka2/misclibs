@@ -56,10 +56,31 @@ int main(int argc, char **argv)
   heffte::box3d<> rspace({0, 0, 0}, {(int)tf.nx_tot - 1, (int)tf.ny_tot - 1, (int)tf.nz_tot - 1}, order);
   heffte::box3d<> cspace({0, 0, 0}, {(int)tf.nx_tot - 1, (int)tf.ny_tot - 1, (int)tf.nz_tot / 2}, order);
 
-  std::array<int, 3> proc_grid = {p.ntasks_x, p.ntasks_y, p.ntasks_z};
+  // こちらのMPIランクは z-y-x order。 rank_z + nproc_z * (rank_y + nproc_y * rank_x)
+  // HeFFTeのMPIランクは x-y-z order。 rank_x + nproc_x * (rank_y + nproc_y * rank_z)
 
+  /* NG */
+  // MPIランクの並び方の不一致で結果が狂う
+  /*
+  std::array<int, 3> proc_grid = {p.ntasks_x, p.ntasks_y, p.ntasks_z};
   auto inbox = heffte::split_world(rspace, proc_grid)[p.thistask];
   auto outbox = heffte::split_world(cspace, proc_grid)[p.thistask];
+  */
+
+  /* NG */
+  // HeFFTeの並びを壊すので結果が狂う
+  /*
+  std::array<int, 3> proc_grid = {p.ntasks_z, p.ntasks_y, p.ntasks_x};
+  auto inbox = heffte::split_world(rspace, proc_grid)[p.thistask];
+  auto outbox = heffte::split_world(cspace, proc_grid)[p.thistask];
+  */
+
+  /* OK */
+  // これだと正常
+  std::array<int, 3> proc_grid = {p.ntasks_x, p.ntasks_y, p.ntasks_z};
+  int heffte_rank = p.thistask_x + p.ntasks_x * (p.thistask_y + p.ntasks_y * p.thistask_z);
+  auto inbox = heffte::split_world(rspace, proc_grid)[heffte_rank];
+  auto outbox = heffte::split_world(cspace, proc_grid)[heffte_rank];
 
   tf.nx_loc = inbox.size[0];
   tf.ny_loc = inbox.size[1];
