@@ -56,9 +56,7 @@ int main(int argc, char **argv)
   heffte::box3d<> rspace({0, 0, 0}, {(int)tf.nx_tot - 1, (int)tf.ny_tot - 1, (int)tf.nz_tot - 1}, order);
   heffte::box3d<> cspace({0, 0, 0}, {(int)tf.nx_tot - 1, (int)tf.ny_tot - 1, (int)tf.nz_tot / 2}, order);
 
-  // code rank index (z-y-x order) heffte index (x-y-z order)
-  // std::array<int, 3> proc_grid = {p.ntasks_x, p.ntasks_y, p.ntasks_z};
-  std::array<int, 3> proc_grid = {p.ntasks_z, p.ntasks_y, p.ntasks_x};
+  std::array<int, 3> proc_grid = {p.ntasks_x, p.ntasks_y, p.ntasks_z};
 
   auto inbox = heffte::split_world(rspace, proc_grid)[p.thistask];
   auto outbox = heffte::split_world(cspace, proc_grid)[p.thistask];
