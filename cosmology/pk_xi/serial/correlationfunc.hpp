@@ -34,6 +34,7 @@ public:
   bool symmetry = true; // true: count each pair once (i<j only)
                         // false: count both directions
 
+  int los = 2; // default : z-axis
   int nmu;
   double mumin, mumax, dmu;
   std::vector<float> mucen; // bin center
@@ -346,7 +347,7 @@ int correlation::get_ir_from_dr(T dx, T dy, T dz)
   dy -= std::nearbyint(dy);
   dz -= std::nearbyint(dz);
 
-  const double dr2 = dx * dx + dy * dy + dz * dz;
+  const T dr2 = dx * dx + dy * dy + dz * dz;
   int ir = get_r2_index(dr2);
   return ir;
 }
@@ -357,11 +358,12 @@ int correlation::get_imu_from_dr(T dx, T dy, T dz)
   dx -= std::nearbyint(dx);
   dy -= std::nearbyint(dy);
   dz -= std::nearbyint(dz);
-  const double dr2 = dx * dx + dy * dy + dz * dz;
-  double mu = dz / std::sqrt(dr2);
-  if(half_angle) mu = std::abs(mu);
 
-  int imu = std::floor((mu - mumin) / dmu);
+  const T dr2 = dx * dx + dy * dy + dz * dz;
+  const T dlos[3] = {dx, dy, dz};
+  double mu = dlos[los] / std::sqrt(dr2);
+  if(half_angle) mu = std::abs(mu);
+  int imu = (int)(std::floor((mu - mumin) / dmu));
   return (imu >= 0 && imu < nmu) ? imu : -1;
 }
 
@@ -371,12 +373,15 @@ T correlation::get_ismu_from_dr(T dx, T dy, T dz, int &ir, int &imu)
   dx -= std::nearbyint(dx);
   dy -= std::nearbyint(dy);
   dz -= std::nearbyint(dz);
-  const double dr2 = dx * dx + dy * dy + dz * dz;
+
+  const T dr2 = dx * dx + dy * dy + dz * dz;
   ir = get_r2_index(dr2);
-  T mu = dz / std::sqrt(dr2);
+
+  const T dlos[3] = {dx, dy, dz};
+  T mu = dlos[los] / std::sqrt(dr2);
   if(half_angle) mu = std::abs(mu);
 
-  imu = std::floor((mu - mumin) / dmu);
+  imu = (int)(std::floor((mu - mumin) / dmu));
   return mu;
 }
 
@@ -387,14 +392,18 @@ T correlation::get_ispsp_from_dr(T dx, T dy, T dz, int &iperp, int &ipara)
   dy -= std::nearbyint(dy);
   dz -= std::nearbyint(dz);
 
-  double spara = dz;                                 //  r * mu;
-  const double sperp = std::sqrt(dx * dx + dy * dy); //  sqrt(r^2 - spara^2);
+  const T dr2 = dx * dx + dy * dy + dz * dz;
+
+  const T dlos[3] = {dx, dy, dz};
+  const T dr = std::sqrt(dr2);
+  T spara = dlos[los];                            //  r * mu;
+  const T sperp = std::sqrt(dr2 - spara * spara); //  sqrt(r^2 - spara^2);
 
   if(half_angle) spara = std::abs(spara);
 
-  iperp = std::floor((sperp - sperp_min) / dsperp);
-  ipara = std::floor((spara - spara_min) / dspara);
-  T mu = spara / std::sqrt(spara * spara + sperp * sperp);
+  iperp = (int)(std::floor((sperp - sperp_min) / dsperp));
+  ipara = (int)(std::floor((spara - spara_min) / dspara));
+  T mu = spara / dr;
   return mu;
 }
 

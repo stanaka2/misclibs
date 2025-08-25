@@ -115,6 +115,7 @@ int main(int argc, char **argv)
   cor.nmesh = nmesh;
   cor.njk = jk_block;
   cor.jk_level = jk_level;
+  cor.los = (opt.los_axis == "x") ? 0 : (opt.los_axis == "y") ? 1 : 2;
 
   cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
 

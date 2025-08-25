@@ -187,6 +187,7 @@ int main(int argc, char **argv)
   cor.jk_level = jk_level;
   cor.jk_type = opt.jk_type;
   cor.nrand_factor = opt.nrand_factor;
+  cor.los = (opt.los_axis == "x") ? 0 : (opt.los_axis == "y") ? 1 : 2;
 
   cor.set_cor_estimator(opt.estimator);
   cor.set_cor_mode(opt.mode);

@@ -90,7 +90,7 @@ int main(int argc, char **argv)
   cor.p = snap.scheme;
   cor.lbox = lbox;
   cor.nmesh = nmesh;
-  cor.jk_block = jk_block;
+  cor.njk = jk_block;
   cor.jk_level = jk_level;
   cor.shotnoise_corr = !opt.no_shotnoise_corr;
 

@@ -111,6 +111,7 @@ int main(int argc, char **argv)
   cor.njk = jk_block;
   cor.jk_level = jk_level;
   cor.jk_type = opt.jk_type;
+  cor.los = (opt.los_axis == "x") ? 0 : (opt.los_axis == "y") ? 1 : 2;
 
   cor.set_cor_estimator(opt.estimator);
   cor.set_cor_mode("r");
