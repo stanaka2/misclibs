@@ -30,7 +30,6 @@ public:
 
   bool log_scale;
   double lin_dk, lin_dk2; // k, k^2 base
-  double ratio, ratio2;
   double logratio, logratio2;
 
   int p = -1; // 0: non correct
@@ -92,9 +91,9 @@ void powerspec::set_kbin(double _kmin, double _kmax, int _nk, bool _log_scale = 
 
   if(log_scale) {
     if(kmin < 1e-10) kmin = 1e-10;
-    ratio = pow(kmax / kmin, 1.0 / (double)(nk));
-    logratio = log(ratio);
-    for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin * pow(ratio, ik + 0.5);
+    logratio = std::log(kmax / kmin) / (double)nk;
+    for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin * std::exp((ik + 0.5) * logratio);
+
   } else {
     lin_dk = (kmax - kmin) / (double)(nk);
     for(int ik = 0; ik < nk; ik++) kcen[ik] = kmin + lin_dk * (ik + 0.5);

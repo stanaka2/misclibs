@@ -23,6 +23,9 @@ matter_xi_ifft: matter_xi_ifft.o
 halo_pk: halo_pk.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 
+halo_pk_cross: halo_pk_cross.o
+	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
+
 halo_xi: halo_xi.o
 	$(CXX) $(CXXFLAGS) $< $(HDF5_LIB) $(FFTW_LIB) -o $@
 

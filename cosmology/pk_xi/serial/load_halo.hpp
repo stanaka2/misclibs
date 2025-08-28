@@ -7,6 +7,37 @@
 #include <cassert>
 #include <hdf5.h>
 
+#if 1
+constexpr const char *Omlabel = "OmegaM";
+constexpr const char *Ollabel = "OmegaLambda";
+constexpr const char *hlabel = "HubbleParam";
+constexpr const char *alabel = "a";
+constexpr const char *zlabel = "z";
+constexpr const char *tot_nh_label = "NumHalosAll";
+constexpr const char *nh_label = "NumHalos";
+
+const std::string group_label = "Halos/";
+const std::string pos_label = "pos";
+const std::string vel_label = "vel";
+const std::string pot_label = "pot_total";
+const std::string cl_label = "child_level";
+
+#else
+constexpr const char *Omlabel = "Omega_m";
+constexpr const char *Ollabel = "Omega_L";
+constexpr const char *hlabel = "h";
+constexpr const char *alabel = "ScaleFactor";
+constexpr const char *zlabel = "Redshift";
+constexpr const char *tot_nh_label = "TotalNumberHalos";
+constexpr const char *nh_label = "NumberHalos";
+
+const std::string group_label = "Subhalo/";
+const std::string pos_label = "Position";
+const std::string vel_label = "Velocity";
+const std::string pot_label = "PotTotal";
+const std::string cl_label = "ChildLevel";
+#endif
+
 class load_halos
 {
 public:
@@ -137,15 +168,15 @@ void load_halos::read_header(std::string filename)
   assert(hgid >= 0);
 
   read_attribute(hgid, "Nfile", &nfile);
-  read_attribute(hgid, "OmegaM", &Om);
-  read_attribute(hgid, "OmegaLambda", &Ol);
-  read_attribute(hgid, "HubbleParam", &h0);
-  read_attribute(hgid, "a", &a);
-  read_attribute(hgid, "z", &z);
+  read_attribute(hgid, Omlabel, &Om);
+  read_attribute(hgid, Ollabel, &Ol);
+  read_attribute(hgid, hlabel, &h0);
+  read_attribute(hgid, alabel, &a);
+  read_attribute(hgid, zlabel, &z);
   read_attribute(hgid, "BoxSize", &box_size);
   read_attribute(hgid, "Bounds", bound);
-  read_attribute(hgid, "NumHalosAll", &nhalos_all);
-  read_attribute(hgid, "NumHalos", &nhalos_file);
+  read_attribute(hgid, tot_nh_label, &nhalos_all);
+  read_attribute(hgid, nh_label, &nhalos_file);
   read_attribute(hgid, "ParticleMass", &particle_mass);
 
   assert(H5Gclose(hgid) >= 0); // Close the group.
@@ -236,7 +267,7 @@ std::vector<T> load_halos::load_halo_field(const std::string &input_prefix, cons
     char cifile[256];
     sprintf(cifile, ".%d", ifile);
     std::string input_file = input_prefix + cifile + suffix;
-    auto chunk = read_halo_dataset<T>(input_file, "/Halos", field_name);
+    auto chunk = read_halo_dataset<T>(input_file, group_label, field_name);
     data.insert(data.end(), chunk.begin(), chunk.end());
   }
   return data;

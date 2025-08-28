@@ -213,18 +213,19 @@ void correlation::set_rbin(double _rmin, double _rmax, int _nr, double _lbox, bo
   rmax = _rmax / lbox;
   log_scale = _log_scale;
 
+  if(log_scale) {
+    if(rmin < 1e-8) rmin = 1e-8;
+  }
+
   rmin2 = rmin * rmin;
   rmax2 = rmax * rmax;
 
   rcen.assign(nr, 0.0);
 
   if(log_scale) {
-    if(rmin < 1e-10) rmin = 1e-10;
-    ratio = pow(rmax / rmin, 1.0 / (double)(nr));
-    logratio = log(ratio);
+    logratio = std::log(rmax / rmin) / (double)nr;
     logratio2 = 2 * logratio;
-    for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin * pow(ratio, ir + 0.5);
-
+    for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin * std::exp((ir + 0.5) * logratio);
   } else {
     lin_dr = (rmax - rmin) / (double)(nr);
     for(int ir = 0; ir < nr; ir++) rcen[ir] = rmin + lin_dr * (ir + 0.5);
@@ -486,8 +487,8 @@ void correlation::calc_ideal_pair_r(uint64_t npair)
 
     double r_low, r_high;
     if(log_scale) {
-      r_low = rmin * pow(ratio, ir);
-      r_high = rmin * pow(ratio, ir + 1);
+      r_low = rmin * std::exp(ir * logratio);
+      r_high = rmin * std::exp((ir + 1) * logratio);
     } else {
       r_low = rmin + lin_dr * ir;
       r_high = rmin + lin_dr * (ir + 1);
@@ -512,8 +513,8 @@ void correlation::calc_ideal_pair_r(uint64_t npair, int iblock)
 
     double r_low, r_high;
     if(log_scale) {
-      r_low = rmin * pow(ratio, ir);
-      r_high = rmin * pow(ratio, ir + 1);
+      r_low = rmin * std::exp(ir * logratio);
+      r_high = rmin * std::exp((ir + 1) * logratio);
     } else {
       r_low = rmin + lin_dr * ir;
       r_high = rmin + lin_dr * (ir + 1);
@@ -539,8 +540,8 @@ void correlation::calc_ideal_smu_pair(uint64_t npair)
 
     double r_low, r_high;
     if(log_scale) {
-      r_low = rmin * pow(ratio, ir);
-      r_high = rmin * pow(ratio, ir + 1);
+      r_low = rmin * std::exp(ir * logratio);
+      r_high = rmin * std::exp((ir + 1) * logratio);
     } else {
       r_low = rmin + lin_dr * ir;
       r_high = rmin + lin_dr * (ir + 1);
@@ -570,8 +571,8 @@ void correlation::calc_ideal_smu_pair(uint64_t npair, int iblock)
 
     double r_low, r_high;
     if(log_scale) {
-      r_low = rmin * pow(ratio, ir);
-      r_high = rmin * pow(ratio, ir + 1);
+      r_low = rmin * std::exp(ir * logratio);
+      r_high = rmin * std::exp((ir + 1) * logratio);
     } else {
       r_low = rmin + lin_dr * ir;
       r_high = rmin + lin_dr * (ir + 1);
