@@ -93,7 +93,7 @@ protected:
     app.add_option("--krange", krange, "kmin and kmax")->expected(2)->capture_default_str();
     app.add_option("--nr", nr, "number of r-bins")->capture_default_str();
     app.add_option("--rrange", rrange, "rmin and rmax")->expected(2)->capture_default_str();
-    app.add_option("--mrange", mrange, "minimum halo mass (log10)")->expected(2)->capture_default_str();
+    app.add_option("--mrange", mrange, "halo mass range (log10)")->expected(2)->capture_default_str();
     app.add_option("--clevel", clevel, "halo child level. 0:host- 1:sub- n:n-th child- halo")->expected(2)->capture_default_str();
 
     app.add_option("-n,--nmesh", nmesh, "number of FFT mesh size")->capture_default_str();

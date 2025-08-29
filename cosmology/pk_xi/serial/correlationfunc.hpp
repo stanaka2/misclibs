@@ -2541,7 +2541,7 @@ void correlation::output_xi(std::string filename)
         fout << std::scientific << std::setprecision(10) << rad << " " << xi[ir] << " " << dd_pair[ir] << " "
              << dr_pair[ir] << " " << dr2_pair[ir] << " " << rr_pair[ir] << "\n";
       }
-    } else if(dr2_pair.size() > 0) {
+    } else if(dr_pair.size() > 0) {
       fout << "# r[Mpc/h] xi DD DR RR" << std::endl;
       for(int ir = 0; ir < nr; ir++) {
         double rad = rcen[ir] * lbox;

@@ -18,6 +18,8 @@ public:
   std::string mode = "smu";
   bool half_angle = false;
   std::vector<float> mrange2 = {1.0f, 20.0f};
+  std::vector<int> clevel2 = {0, 100};
+
   int jk_level = 1;
   int jk_type = 0;
   /* end arguments */
@@ -46,7 +48,9 @@ protected:
                  "if not set, calculate the full range (-1<mu<1 or -Rmax<s_para<Rmax)")
         ->capture_default_str();
 
-    app.add_option("--mrange2", mrange2, "minimum halo mass (log10)")->expected(2)->capture_default_str();
+    app.add_option("--mrange2", mrange2, "halo2 mass range (log10)")->expected(2)->capture_default_str();
+    app.add_option("--clevel2", clevel2, "halo2 child level")->expected(2)->capture_default_str();
+
     app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
     app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
         ->check(CLI::IsMember({0, 1}))
@@ -164,7 +168,7 @@ int main(int argc, char **argv)
   groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
   groups2.select_range(mvir, mvir_min2, mvir_max2);
-  groups2.select_range(clevel, opt.clevel[0], opt.clevel[1]);
+  groups2.select_range(clevel, opt.clevel2[0], opt.clevel2[1]);
 
   auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
   auto grp = groups.set_base_grp(pos);
