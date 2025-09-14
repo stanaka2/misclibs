@@ -22,7 +22,11 @@
 - Supports
   - direct pair count mathod (with cell index sort)
     - LS estimation (Landy and Szalay, 1993, ApJ)
+    - Spatially resample blocked jackknife method
+    - Randomly resampled blocked jackknife method
+
   - inverse FFT method (with cell index sort)
+    - Spatially resample blocked jackknife method
 
 ## Running Sample
 

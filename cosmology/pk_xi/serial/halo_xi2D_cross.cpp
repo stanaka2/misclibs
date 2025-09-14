@@ -19,9 +19,6 @@ public:
   bool half_angle = false;
   std::vector<float> mrange2 = {1.0f, 20.0f};
   std::vector<int> clevel2 = {0, 100};
-
-  int jk_level = 1;
-  int jk_type = 0;
   /* end arguments */
 
   ProgOptions() = default;
@@ -50,11 +47,6 @@ protected:
 
     app.add_option("--mrange2", mrange2, "halo2 mass range (log10)")->expected(2)->capture_default_str();
     app.add_option("--clevel2", clevel2, "halo2 child level")->expected(2)->capture_default_str();
-
-    app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
-    app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
-        ->check(CLI::IsMember({0, 1}))
-        ->capture_default_str();
   }
 };
 
@@ -128,10 +120,6 @@ int main(int argc, char **argv)
     }
   }
 
-  int jk_level = opt.jk_level;
-  if(jk_level < 1) jk_level = 1;
-  const int jk_block = jk_level * jk_level * jk_level;
-
   auto nmesh = opt.nmesh;
 
   opt.print_args();
@@ -187,9 +175,6 @@ int main(int argc, char **argv)
   }
 
   correlation cor;
-  cor.njk = jk_block;
-  cor.jk_level = jk_level;
-  cor.jk_type = opt.jk_type;
   cor.nrand_factor = opt.nrand_factor;
   cor.los = (opt.los_axis == "x") ? 0 : (opt.los_axis == "y") ? 1 : 2;
 

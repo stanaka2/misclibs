@@ -5,18 +5,17 @@
 #include <cassert>
 
 #include "load_ptcl.hpp"
-#include "correlationfunc.hpp"
+#include "powerspec.hpp"
 #include "base_opts.hpp"
 
 int main(int argc, char **argv)
 {
   BaseOptions opt(argc, argv);
 
-  int nr = opt.nr;
-  float rmin = opt.rrange[0];
-  float rmax = opt.rrange[1];
+  int nk = opt.nk;
+  float kmin = opt.krange[0];
+  float kmax = opt.krange[1];
   bool log_bin = opt.log_bin;
-
   auto nmesh = opt.nmesh;
 
   opt.print_args();
@@ -49,18 +48,27 @@ int main(int argc, char **argv)
   normalize_mesh(dens_mesh, nmesh);
   // output_field(dens_mesh, nmesh, lbox, "dens_mesh");
 
-  correlation cor;
-  cor.p = snap.scheme;
-  cor.lbox = lbox;
-  cor.nmesh = nmesh;
-  cor.shotnoise_corr = !opt.no_shotnoise_corr;
+  powerspec power;
+  power.p = snap.scheme;
+  power.lbox = lbox;
+  power.nmesh = nmesh;
+  power.shotnoise_corr = !opt.no_shotnoise_corr;
 
-  cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
-  cor.set_shotnoise(np_tot);
+  //   power.check_kbin();
+  power.set_kbin(kmin, kmax, nk, log_bin);
+  power.set_shotnoise(np_tot);
 
-  std::vector<float> weight;
-  cor.calc_xi_ifft(dens_mesh, weight);
-  cor.output_xi(opt.output_filename, weight);
+#if 1
+  std::vector<float> power_dens;
+  std::vector<float> weight_dens;
+  power.calc_power_spec(dens_mesh, power_dens, weight_dens);
+  power.output_pk(power_dens, weight_dens, opt.output_filename);
+#else
+  std::vector<std::vector<float>> power_dens_ell;
+  std::vector<float> weight_dens;
+  power.calc_power_spec_ell(dens_mesh, power_dens_ell, weight_dens);
+  power.output_pk_ell(power_dens_ell, weight_dens, opt.output_filename);
+#endif
 
   std::exit(EXIT_SUCCESS);
 }

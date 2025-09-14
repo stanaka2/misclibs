@@ -17,6 +17,8 @@ public:
   /* default arguments */
   std::string mode = "smu";
   bool half_angle = false;
+  int jk_level = 1;
+  int jk_type = 0;
   /* end arguments */
 
   ProgOptions() = default;
@@ -41,6 +43,10 @@ protected:
     app.add_flag("--half_angle", half_angle,
                  "If set, calculate only the upper half-range (0<mu<1 or 0<s_para<Rmax); "
                  "if not set, calculate the full range (-1<mu<1 or -Rmax<s_para<Rmax)")
+        ->capture_default_str();
+    app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
+    app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
+        ->check(CLI::IsMember({0, 1}))
         ->capture_default_str();
   }
 };
@@ -111,6 +117,10 @@ int main(int argc, char **argv)
     }
   }
 
+  int jk_level = opt.jk_level;
+  if(jk_level < 1) jk_level = 1;
+  const int jk_block = jk_level * jk_level * jk_level;
+
   auto nmesh = opt.nmesh;
 
   opt.print_args();
@@ -155,6 +165,9 @@ int main(int argc, char **argv)
   }
 
   correlation cor;
+  cor.njk = jk_block;
+  cor.jk_level = jk_level;
+  cor.jk_type = opt.jk_type;
   cor.nrand_factor = opt.nrand_factor;
   cor.los = (opt.los_axis == "x") ? 0 : (opt.los_axis == "y") ? 1 : 2;
 

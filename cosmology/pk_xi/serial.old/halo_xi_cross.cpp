@@ -15,8 +15,10 @@ class ProgOptions : public BaseOptions
 {
 public:
   /* default arguments */
-  std::string mode = "smu";
-  bool half_angle = false;
+  std::vector<float> mrange2 = {1.0f, 20.0f};
+  std::vector<int> clevel2 = {0, 100};
+  int jk_level = 1;
+  int jk_type = 0;
   /* end arguments */
 
   ProgOptions() = default;
@@ -37,10 +39,12 @@ protected:
   template <typename T>
   void add_to_app(T &app)
   {
-    app.add_option("--mode", mode, "pair-counting mode")->check(CLI::IsMember({"spsp", "smu"}))->capture_default_str();
-    app.add_flag("--half_angle", half_angle,
-                 "If set, calculate only the upper half-range (0<mu<1 or 0<s_para<Rmax); "
-                 "if not set, calculate the full range (-1<mu<1 or -Rmax<s_para<Rmax)")
+    app.add_option("--mrange2", mrange2, "halo2 mass range (log10)")->expected(2)->capture_default_str();
+    app.add_option("--clevel2", clevel2, "halo2 child level")->expected(2)->capture_default_str();
+
+    app.add_option("--jk_level", jk_level, "JK level")->capture_default_str();
+    app.add_option("--jk_type", jk_type, "JK type (0: spaced, 1: random)")
+        ->check(CLI::IsMember({0, 1}))
         ->capture_default_str();
   }
 };
@@ -55,61 +59,18 @@ int main(int argc, char **argv)
   mvir_min = pow(10.0, opt.mrange[0]);
   mvir_max = pow(10.0, opt.mrange[1]);
 
+  float mvir_min2, mvir_max2;
+  mvir_min2 = pow(10.0, opt.mrange2[0]);
+  mvir_max2 = pow(10.0, opt.mrange2[1]);
+
   int nr = opt.nr;
   float rmin = opt.rrange[0];
   float rmax = opt.rrange[1];
-  // bool log_bin = opt.log_bin;
-  bool log_bin = false;
+  bool log_bin = opt.log_bin;
 
-  int nr1, r1min, r1max;
-  int nr2, r2min, r2max;
-
-  if(opt.mode == "spsp") {
-    // spsp mode
-    if(!opt.half_angle) {
-      // s_perp
-      nr1 = nr;
-      r1min = rmin;
-      r1max = rmax;
-      // s_perp
-      nr2 = 2 * nr;
-      r2min = -rmax;
-      r2max = rmax;
-
-    } else {
-      // s_perp
-      nr1 = nr;
-      r1min = rmin;
-      r1max = rmax;
-      // s_para
-      nr2 = nr;
-      r2min = 0.0;
-      r2max = rmax;
-    }
-
-  } else {
-    // smu mode
-    if(!opt.half_angle) {
-      // s
-      nr1 = nr;
-      r1min = rmin;
-      r1max = rmax;
-      // mu
-      nr2 = 2 * nr;
-      r2min = -1.0;
-      r2max = 1.0;
-
-    } else {
-      // s
-      nr1 = nr;
-      r1min = rmin;
-      r1max = rmax;
-      // mu
-      nr2 = nr;
-      r2min = 0.0;
-      r2max = 1.0;
-    }
-  }
+  int jk_level = opt.jk_level;
+  if(jk_level < 1) jk_level = 1;
+  const int jk_block = jk_level * jk_level * jk_level;
 
   auto nmesh = opt.nmesh;
 
@@ -135,35 +96,49 @@ int main(int argc, char **argv)
   groups.Om = halos.Om;
   groups.Ol = halos.Ol;
 
+  groupcatalog groups2;
+  groups2.lbox = lbox;
+  groups2.Om = halos.Om;
+  groups2.Ol = halos.Ol;
+
   /* set selection halo index */
   auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
   auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
   groups.select_range(mvir, mvir_min, mvir_max);
   groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
+  groups2.select_range(mvir, mvir_min2, mvir_max2);
+  groups2.select_range(clevel, opt.clevel2[0], opt.clevel2[1]);
+
   auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
   auto grp = groups.set_base_grp(pos);
+  auto grp2 = groups2.set_base_grp(pos);
 
   if(opt.do_RSD) {
     auto vel = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "vel");
     groups.apply_RSD_shift(vel, ascale, opt.los_axis, grp);
+    groups2.apply_RSD_shift(vel, ascale, opt.los_axis, grp2);
   }
 
   if(opt.do_Gred) {
     auto pot = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pot_total");
     groups.apply_Gred_shift(pot, ascale, opt.los_axis, grp);
+    groups2.apply_Gred_shift(pot, ascale, opt.los_axis, grp2);
   }
 
   correlation cor;
-  cor.nrand_factor = opt.nrand_factor;
+  cor.set_rbin(rmin, rmax, nr, lbox, log_bin);
+  cor.njk = jk_block;
+  cor.jk_level = jk_level;
+  cor.jk_type = opt.jk_type;
   cor.los = (opt.los_axis == "x") ? 0 : (opt.los_axis == "y") ? 1 : 2;
 
   cor.set_cor_estimator(opt.estimator);
-  cor.set_cor_mode(opt.mode);
+  cor.set_cor_mode("r");
+  cor.nrand_factor = opt.nrand_factor;
 
-  cor.set_rbin2D(r1min, r1max, nr1, r2min, r2max, nr2, lbox);
-  cor.calc_xi(grp);
-  cor.output_xi2D(opt.output_filename);
+  cor.calc_xi(grp, grp2);
+  cor.output_xi(opt.output_filename);
 
   return EXIT_SUCCESS;
 }

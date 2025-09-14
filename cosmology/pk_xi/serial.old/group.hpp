@@ -12,6 +12,7 @@
 struct group {
   float xpos, ypos, zpos;
   float mass;
+  int block_id; // for jackknife
 };
 
 #else
@@ -20,6 +21,7 @@ struct group {
   float xvel, yvel, zvel;
   float mass;
   float pot;
+  int block_id; // for jackknife
 };
 #endif
 
