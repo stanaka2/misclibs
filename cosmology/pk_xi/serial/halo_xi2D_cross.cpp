@@ -151,25 +151,25 @@ int main(int argc, char **argv)
 
   /* set selection halo index */
   auto mvir = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "Mvir");
-  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, "child_level");
+  auto clevel = halos.load_halo_field<int>(opt.input_prefix, opt.h5_suffix, cl_label);
   groups.select_range(mvir, mvir_min, mvir_max);
   groups.select_range(clevel, opt.clevel[0], opt.clevel[1]);
 
   groups2.select_range(mvir, mvir_min2, mvir_max2);
   groups2.select_range(clevel, opt.clevel2[0], opt.clevel2[1]);
 
-  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pos");
+  auto pos = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, pos_label);
   auto grp = groups.set_base_grp(pos);
   auto grp2 = groups2.set_base_grp(pos);
 
   if(opt.do_RSD) {
-    auto vel = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "vel");
+    auto vel = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, vel_label);
     groups.apply_RSD_shift(vel, ascale, opt.los_axis, grp);
     groups2.apply_RSD_shift(vel, ascale, opt.los_axis, grp2);
   }
 
   if(opt.do_Gred) {
-    auto pot = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, "pot_total");
+    auto pot = halos.load_halo_field<float>(opt.input_prefix, opt.h5_suffix, pot_label);
     groups.apply_Gred_shift(pot, ascale, opt.los_axis, grp);
     groups2.apply_Gred_shift(pot, ascale, opt.los_axis, grp2);
   }
