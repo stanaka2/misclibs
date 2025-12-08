@@ -389,9 +389,9 @@ void calc_grav_simd_thread_with_pot(EPItreepm *iptcl, Result_treepm *ppforce, co
       ppforce[iii].acc[2] += aii[2][ii];
       ppforce[iii].pot += poti[ii];
       ppforce[iii].dens += densi[ii];
-      ppforce[iii].dens_grad[0] += dgi[0][ii];
-      ppforce[iii].dens_grad[1] += dgi[1][ii];
-      ppforce[iii].dens_grad[2] += dgi[2][ii];
+      ppforce[iii].dens_grad[0] -= dgi[0][ii];
+      ppforce[iii].dens_grad[1] -= dgi[1][ii];
+      ppforce[iii].dens_grad[2] -= dgi[2][ii];
     }
   }
 }

@@ -1,7 +1,5 @@
-// g++ -DAVX2 -std=c++17 -O3 -mavx2 -mfma main.cpp -o test_avx2
-// g++ -DAVX2_PD -std=c++17 -O3 -mavx2 -mfma main.cpp -o test_avx2_pd
-// g++ -DAVX512 -std=c++17 -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl main.cpp -o test_avx512
-// g++ -DAVX512_PD -std=c++17 -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl main.cpp -o test_avx512_pd
+// FCCpx -std=c++17 -Nclang -O3  -mcpu=a64fx+sve -march=armv8.2-a+sve main.cpp -o test_sve
+// FCCpx -std=c++17 -Nclang -O3  -mcpu=a64fx+sve -march=armv8.2-a+sve -DPG6 main.cpp -o test_sve_pd
 
 #include <cstdio>
 #include <cstdlib>
@@ -41,14 +39,10 @@ struct EPItreepm {
   PS::F64 mass;
 };
 
-#ifdef AVX2
-#include "avx_grav_avx2.h"
-#elif defined AVX2_PD
-#include "avx_grav_avx2_pd.h"
-#elif defined AVX512
-#include "avx_grav_avx512.h"
-#elif defined AVX512_PD
-#include "avx_grav_avx512_pd.h"
+#ifdef PG6
+#include "sve_grav_pd.h"
+#else
+#include "sve_grav.h"
 #endif
 
 void calc_pp_force_simd(EPItreepm *iptcl, Result_treepm *ppforce, int ni, double (*xj)[3], double *mj, int nj,
@@ -57,7 +51,19 @@ void calc_pp_force_simd(EPItreepm *iptcl, Result_treepm *ppforce, int ni, double
   for(int i = 0; i < ni; i++) {
     ppforce[i].acc = PS::F32vec(0.f, 0.f, 0.f);
   }
-  calc_grav_simd_thread(iptcl, ppforce, ni, xj, mj, nj, eps2_pp, eps_pm);
+
+  jlist_t *jlist = new jlist_t[nj];
+
+  for(int j = 0; j < nj; j++) {
+    jlist[j].xpos = xj[j][0];
+    jlist[j].ypos = xj[j][1];
+    jlist[j].zpos = xj[j][2];
+    jlist[j].mass = mj[j];
+  }
+
+  calc_grav_simd_thread(iptcl, ppforce, ni, jlist, nj, eps2_pp, eps_pm);
+
+  delete[] jlist;
 }
 
 inline PS::F64 gfactor_S2(const PS::F64 rad, const PS::F64 eps_pm)
